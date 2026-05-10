@@ -1,0 +1,17 @@
+node_modules/
+.next/
+.env
+.env.local
+*.log
+.DS_Store
+data/*.db
+data/*.db-journal
+public/uploads/
+.vercel
+
+# TS build artifacts
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Claude tooling state (per-machine, not project-shared)
+.claude/
