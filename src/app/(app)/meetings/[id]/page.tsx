@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { Calendar, Clock, MapPin, Video, Plus, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -98,16 +98,17 @@ export default async function MeetingDetailPage({ params }: { params: Promise<{ 
       .where(eq(memberships.organizationId, membership.organizationId)),
   ]);
 
-  // votes per resolution
-  const resWithCounts = await Promise.all(
-    resolutionRows.map(async (r) => {
-      const [c] = await db
-        .select({ c: sql<number>`count(*)` })
+  // One grouped query for vote counts across this meeting's resolutions.
+  const resolutionIds = resolutionRows.map((r) => r.id);
+  const voteCountRows = resolutionIds.length
+    ? await db
+        .select({ resolutionId: votes.resolutionId, c: sql<number>`count(*)` })
         .from(votes)
-        .where(eq(votes.resolutionId, r.id));
-      return { ...r, voteCount: Number(c?.c ?? 0) };
-    })
-  );
+        .where(inArray(votes.resolutionId, resolutionIds))
+        .groupBy(votes.resolutionId)
+    : [];
+  const votesByRes = new Map(voteCountRows.map((v) => [v.resolutionId, Number(v.c)]));
+  const resWithCounts = resolutionRows.map((r) => ({ ...r, voteCount: votesByRes.get(r.id) ?? 0 }));
 
   const myAttendance = attendanceRows.find((a) => a.userId === user.id);
   const isManager = canManage(membership.role);

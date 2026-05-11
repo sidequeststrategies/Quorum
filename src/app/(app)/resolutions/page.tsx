@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,15 +26,18 @@ export default async function ResolutionsPage() {
     .where(eq(resolutions.organizationId, membership.organizationId))
     .orderBy(desc(resolutions.createdAt));
 
-  const items = await Promise.all(
-    rows.map(async (r) => {
-      const [c] = await db
-        .select({ c: sql<number>`count(*)` })
+  // One grouped query for all vote counts, then merge in-memory. Replaces
+  // an N+1 over resolutions on Turso.
+  const resolutionIds = rows.map((r) => r.id);
+  const voteCountRows = resolutionIds.length
+    ? await db
+        .select({ resolutionId: votes.resolutionId, c: sql<number>`count(*)` })
         .from(votes)
-        .where(eq(votes.resolutionId, r.id));
-      return { ...r, voteCount: Number(c?.c ?? 0) };
-    })
-  );
+        .where(inArray(votes.resolutionId, resolutionIds))
+        .groupBy(votes.resolutionId)
+    : [];
+  const votesByRes = new Map(voteCountRows.map((v) => [v.resolutionId, Number(v.c)]));
+  const items = rows.map((r) => ({ ...r, voteCount: votesByRes.get(r.id) ?? 0 }));
 
   return (
     <div className="space-y-6">

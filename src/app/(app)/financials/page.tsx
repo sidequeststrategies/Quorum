@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, count, desc, eq, inArray } from "drizzle-orm";
 import { FileText, LineChart, Plus, Trash2, Upload } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,12 +27,17 @@ export default async function FinancialsPage() {
     db.select().from(financialDocuments).where(eq(financialDocuments.organizationId, orgId)).orderBy(desc(financialDocuments.period), desc(financialDocuments.createdAt)),
   ]);
 
-  const plansWithCount = await Promise.all(
-    plans.map(async (p) => {
-      const scs = await db.select().from(financialScenarios).where(eq(financialScenarios.planId, p.id));
-      return { ...p, scenarioCount: scs.length };
-    })
-  );
+  // Replace per-plan scenario count with a single grouped query.
+  const planIds = plans.map((p) => p.id);
+  const scenarioCountRows = planIds.length
+    ? await db
+        .select({ planId: financialScenarios.planId, c: count() })
+        .from(financialScenarios)
+        .where(inArray(financialScenarios.planId, planIds))
+        .groupBy(financialScenarios.planId)
+    : [];
+  const scenarioCountByPlan = new Map(scenarioCountRows.map((r) => [r.planId, r.c]));
+  const plansWithCount = plans.map((p) => ({ ...p, scenarioCount: scenarioCountByPlan.get(p.id) ?? 0 }));
 
   const isManager = canManage(membership.role);
 

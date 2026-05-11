@@ -62,24 +62,47 @@ export default async function DashboardPage() {
 
   const memberCount = memberCountRow[0]?.c ?? 0;
 
-  // counts per upcoming meeting
-  const upcoming = await Promise.all(
-    upcomingRows.map(async (m) => {
-      const [a, t] = await Promise.all([
-        db.select({ c: count() }).from(agendaItems).where(eq(agendaItems.meetingId, m.id)),
-        db.select({ c: count() }).from(attendances).where(eq(attendances.meetingId, m.id)),
-      ]);
-      return { ...m, agendaCount: a[0]?.c ?? 0, attendanceCount: t[0]?.c ?? 0 };
-    })
-  );
+  // Resolve all per-meeting and per-resolution counts in 3 grouped queries
+  // instead of (2 * meetings) + (1 * resolutions) point queries. On Turso the
+  // round-trip savings are the dominant performance factor.
+  const meetingIds = upcomingRows.map((m) => m.id);
+  const resolutionIds = openResolutions.map((r) => r.id);
+  const [agendaRows, attendanceRows, voteRows] = await Promise.all([
+    meetingIds.length
+      ? db
+          .select({ meetingId: agendaItems.meetingId, c: count() })
+          .from(agendaItems)
+          .where(inArray(agendaItems.meetingId, meetingIds))
+          .groupBy(agendaItems.meetingId)
+      : Promise.resolve([]),
+    meetingIds.length
+      ? db
+          .select({ meetingId: attendances.meetingId, c: count() })
+          .from(attendances)
+          .where(inArray(attendances.meetingId, meetingIds))
+          .groupBy(attendances.meetingId)
+      : Promise.resolve([]),
+    resolutionIds.length
+      ? db
+          .select({ resolutionId: votes.resolutionId, c: count() })
+          .from(votes)
+          .where(inArray(votes.resolutionId, resolutionIds))
+          .groupBy(votes.resolutionId)
+      : Promise.resolve([]),
+  ]);
+  const agendaByMtg = new Map(agendaRows.map((r) => [r.meetingId, r.c]));
+  const attendanceByMtg = new Map(attendanceRows.map((r) => [r.meetingId, r.c]));
+  const votesByRes = new Map(voteRows.map((r) => [r.resolutionId, r.c]));
 
-  // votes count per resolution
-  const openWithCounts = await Promise.all(
-    openResolutions.map(async (r) => {
-      const [v] = await db.select({ c: count() }).from(votes).where(eq(votes.resolutionId, r.id));
-      return { ...r, voteCount: v?.c ?? 0 };
-    })
-  );
+  const upcoming = upcomingRows.map((m) => ({
+    ...m,
+    agendaCount: agendaByMtg.get(m.id) ?? 0,
+    attendanceCount: attendanceByMtg.get(m.id) ?? 0,
+  }));
+  const openWithCounts = openResolutions.map((r) => ({
+    ...r,
+    voteCount: votesByRes.get(r.id) ?? 0,
+  }));
 
   return (
     <div className="space-y-8">

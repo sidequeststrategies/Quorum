@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Calendar } from "lucide-react";
-import { and, asc, count, desc, eq, gte, lt } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lt, isNotNull } from "drizzle-orm";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,22 +10,35 @@ import { requireMembership } from "@/lib/session";
 import { formatDate } from "@/lib/utils";
 import { MEETING_STATUS_LABELS } from "@/lib/enums";
 
-async function withCounts(rows: Array<typeof meetings.$inferSelect>) {
-  return Promise.all(
-    rows.map(async (m) => {
-      const [a, t, r] = await Promise.all([
-        db.select({ c: count() }).from(agendaItems).where(eq(agendaItems.meetingId, m.id)),
-        db.select({ c: count() }).from(attendances).where(eq(attendances.meetingId, m.id)),
-        db.select({ c: count() }).from(resolutions).where(eq(resolutions.meetingId, m.id)),
-      ]);
-      return {
-        ...m,
-        agendaCount: a[0]?.c ?? 0,
-        attendanceCount: t[0]?.c ?? 0,
-        resolutionCount: r[0]?.c ?? 0,
-      };
-    })
-  );
+// Resolve agenda/attendance/resolution counts for many meetings in 3 grouped
+// queries instead of 3×N point queries. Cuts Turso round-trips from ~3*meetings
+// down to a constant 3.
+async function countsByMeetingId(meetingIds: string[]) {
+  if (meetingIds.length === 0) {
+    return { agenda: new Map<string, number>(), attendance: new Map<string, number>(), resolution: new Map<string, number>() };
+  }
+  const [agendaRows, attendanceRows, resolutionRows] = await Promise.all([
+    db
+      .select({ meetingId: agendaItems.meetingId, c: count() })
+      .from(agendaItems)
+      .where(inArray(agendaItems.meetingId, meetingIds))
+      .groupBy(agendaItems.meetingId),
+    db
+      .select({ meetingId: attendances.meetingId, c: count() })
+      .from(attendances)
+      .where(inArray(attendances.meetingId, meetingIds))
+      .groupBy(attendances.meetingId),
+    db
+      .select({ meetingId: resolutions.meetingId, c: count() })
+      .from(resolutions)
+      .where(and(isNotNull(resolutions.meetingId), inArray(resolutions.meetingId, meetingIds)))
+      .groupBy(resolutions.meetingId),
+  ]);
+  return {
+    agenda: new Map(agendaRows.map((r) => [r.meetingId, r.c])),
+    attendance: new Map(attendanceRows.map((r) => [r.meetingId, r.c])),
+    resolution: new Map(resolutionRows.map((r) => [r.meetingId as string, r.c])),
+  };
 }
 
 export default async function MeetingsPage() {
@@ -47,7 +60,17 @@ export default async function MeetingsPage() {
       .limit(20),
   ]);
 
-  const [upcoming, past] = await Promise.all([withCounts(upcomingRows), withCounts(pastRows)]);
+  const allIds = [...upcomingRows.map((m) => m.id), ...pastRows.map((m) => m.id)];
+  const c = await countsByMeetingId(allIds);
+  const annotate = (rows: typeof upcomingRows) =>
+    rows.map((m) => ({
+      ...m,
+      agendaCount: c.agenda.get(m.id) ?? 0,
+      attendanceCount: c.attendance.get(m.id) ?? 0,
+      resolutionCount: c.resolution.get(m.id) ?? 0,
+    }));
+  const upcoming = annotate(upcomingRows);
+  const past = annotate(pastRows);
 
   return (
     <div className="space-y-8">

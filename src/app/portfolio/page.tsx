@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Briefcase, Building2, Vote } from "lucide-react";
-import { count, eq, gte, ne, and } from "drizzle-orm";
+import { and, count, eq, gte, inArray, ne } from "drizzle-orm";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,27 +24,38 @@ export default async function PortfolioPage() {
     redirect("/onboarding");
   }
 
-  // Pull lightweight stats per org
-  const enriched = await Promise.all(
-    memberships.map(async (m) => {
-      const now = new Date();
-      const [upcomingRow, openResolutionRow] = await Promise.all([
+  // Resolve stats for ALL orgs in 2 grouped queries (vs 2-per-org with the
+  // per-row loop). For an advisor sitting on 5+ boards this is the difference
+  // between ~12 round-trips and 3.
+  const orgIds = memberships.map((m) => m.organizationId);
+  const now = new Date();
+  const [upcomingRows, openResRows] = orgIds.length
+    ? await Promise.all([
         db
-          .select({ c: count() })
+          .select({ orgId: meetings.organizationId, c: count() })
           .from(meetings)
-          .where(and(eq(meetings.organizationId, m.organizationId), gte(meetings.scheduledAt, now), ne(meetings.status, "CANCELLED"))),
+          .where(
+            and(
+              inArray(meetings.organizationId, orgIds),
+              gte(meetings.scheduledAt, now),
+              ne(meetings.status, "CANCELLED")
+            )
+          )
+          .groupBy(meetings.organizationId),
         db
-          .select({ c: count() })
+          .select({ orgId: resolutions.organizationId, c: count() })
           .from(resolutions)
-          .where(and(eq(resolutions.organizationId, m.organizationId), eq(resolutions.status, "OPEN"))),
-      ]);
-      return {
-        membership: m,
-        upcomingMeetings: upcomingRow[0]?.c ?? 0,
-        openResolutions: openResolutionRow[0]?.c ?? 0,
-      };
-    })
-  );
+          .where(and(inArray(resolutions.organizationId, orgIds), eq(resolutions.status, "OPEN")))
+          .groupBy(resolutions.organizationId),
+      ])
+    : [[], []];
+  const upcomingByOrg = new Map(upcomingRows.map((r) => [r.orgId, r.c]));
+  const openByOrg = new Map(openResRows.map((r) => [r.orgId, r.c]));
+  const enriched = memberships.map((m) => ({
+    membership: m,
+    upcomingMeetings: upcomingByOrg.get(m.organizationId) ?? 0,
+    openResolutions: openByOrg.get(m.organizationId) ?? 0,
+  }));
 
   async function logout() {
     "use server";
