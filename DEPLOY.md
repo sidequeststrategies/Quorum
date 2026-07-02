@@ -101,6 +101,8 @@ Paste these into Vercel's "Environment Variables" section. Mark anything that lo
 | `NEXTAUTH_URL` | `https://quorum.sidequeststrategies.com` | Must match your final domain |
 | `STORAGE_DRIVER` | `vercel-blob` | |
 | `ANTHROPIC_API_KEY` | (your key, optional) | Leave unset to disable `/chat` — **Sensitive** |
+| `NOTION_TOKEN` | (optional) internal integration secret | Enables report push/pull sync to Notion — **Sensitive** |
+| `NOTION_REPORTS_PAGE_ID` | (optional) parent page id | The "Board Reports" Notion page the reports sync under; share it with the integration |
 
 ### 4c. Connect a Vercel Blob store
 

@@ -119,6 +119,28 @@ export async function createReport(formData: FormData) {
     }
   }
 
+  // Copy-forward: prefill every still-empty section from the most recent
+  // report built on the same template, so the writer edits last period's
+  // text instead of facing a blank page. Metric sections keep the fresh
+  // numbers computed above.
+  if (templateId) {
+    const priorRows = await db
+      .select()
+      .from(reports)
+      .where(and(eq(reports.organizationId, membership.organizationId), eq(reports.templateId, templateId)))
+      .orderBy(desc(reports.createdAt))
+      .limit(1);
+    const prior = priorRows[0];
+    if (prior) {
+      try {
+        const priorValues = JSON.parse(prior.values) as Record<string, string>;
+        initialValues = { ...priorValues, ...initialValues };
+      } catch {
+        /* noop */
+      }
+    }
+  }
+
   const [r] = await db
     .insert(reports)
     .values({

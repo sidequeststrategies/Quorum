@@ -1,14 +1,27 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { db } from "@/lib/db";
-import { actionItems, agendaItems, meetings, reports, resolutions, users } from "@/db/schema";
-import { requireMembership } from "@/lib/session";
-import { cycleChecklist, getBoardPackData } from "@/lib/board-pack";
+import {
+  actionItems,
+  agendaItems,
+  financialPlans,
+  financialScenarios,
+  meetings,
+  reports,
+  resolutions,
+  users,
+} from "@/db/schema";
+import { canManage, requireMembership } from "@/lib/session";
+import { cycleChecklist } from "@/lib/board-pack";
+import { getMeetingCompare } from "@/lib/meeting-compare";
+import { captureForecast } from "@/lib/actions/forecasts";
 import { financialSummaryLines, fmtUSD } from "@/lib/finance";
 import { CashChart } from "@/components/cash-chart";
+import { DeltaStat, Transition } from "@/components/delta";
 import {
   CustomerStatusBadge,
   HealthDot,
@@ -17,14 +30,18 @@ import {
   RiskSeverityBadge,
   RiskStatusBadge,
 } from "@/components/report-badges";
-import { RESOLUTION_STATUS_LABELS, RISK_CATEGORY_LABELS } from "@/lib/enums";
+import {
+  CUSTOMER_HEALTH_LABELS,
+  PROJECT_STATUS_LABELS,
+  RESOLUTION_STATUS_LABELS,
+  RISK_CATEGORY_LABELS,
+} from "@/lib/enums";
 import { formatDate, formatDateOnly, formatPeriod } from "@/lib/utils";
 
-const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-export default async function BoardPackPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function MeetingHubPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { membership } = await requireMembership();
+  const manager = canManage(membership.role);
 
   const meetingRows = await db
     .select()
@@ -35,8 +52,8 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
   if (!meeting) notFound();
 
   const period = new Date(meeting.scheduledAt);
-  const [pack, agenda, meetingResolutions, meetingActions, meetingReports] = await Promise.all([
-    getBoardPackData(membership.organizationId, period),
+  const [cmp, agenda, meetingResolutions, meetingActions, meetingReports, scenarios] = await Promise.all([
+    getMeetingCompare(membership.organizationId, meeting),
     db.select().from(agendaItems).where(eq(agendaItems.meetingId, id)).orderBy(asc(agendaItems.order)),
     db.select().from(resolutions).where(eq(resolutions.meetingId, id)),
     db
@@ -45,24 +62,40 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
       .leftJoin(users, eq(actionItems.assigneeId, users.id))
       .where(eq(actionItems.meetingId, id)),
     db.select().from(reports).where(and(eq(reports.meetingId, id), eq(reports.status, "PUBLISHED"))),
+    db
+      .select({ s: financialScenarios, planName: financialPlans.name })
+      .from(financialScenarios)
+      .innerJoin(financialPlans, eq(financialScenarios.planId, financialPlans.id))
+      .where(eq(financialPlans.organizationId, membership.organizationId))
+      .orderBy(desc(financialPlans.updatedAt), asc(financialScenarios.name)),
   ]);
 
+  const { pack, prevMeeting } = cmp;
   const checklist = cycleChecklist(pack);
   const missing = checklist.filter((c) => !c.done);
   const summary = pack.snapshot ? financialSummaryLines(pack.snapshots) : [];
   const trailing = pack.snapshots.slice(-12);
+  const fc = cmp.forecast;
+
+  let n = 0;
+  const next = () => ++n;
 
   return (
     <div className="space-y-8">
       <div className="flex items-start justify-between gap-4 print:hidden">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Board pack — {formatPeriod(period)}</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {meeting.title} — {formatPeriod(period)}
+          </h1>
           <p className="text-muted-foreground">
-            {meeting.title} · {formatDate(meeting.scheduledAt)}
+            {formatDate(meeting.scheduledAt)}
+            {prevMeeting
+              ? ` · changes shown vs ${prevMeeting.title} (${formatDateOnly(prevMeeting.scheduledAt)})`
+              : " · first meeting on record — no comparison baseline yet"}
           </p>
         </div>
         <Button asChild variant="outline">
-          <Link href={`/meetings/${meeting.id}`}>Back to meeting</Link>
+          <Link href={`/meetings/${meeting.id}`}>Logistics & agenda</Link>
         </Button>
       </div>
 
@@ -82,8 +115,8 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
         </Card>
       ) : null}
 
-      {/* 1. Financials */}
-      <PackSection n={1} title="Financials">
+      {/* Financials */}
+      <PackSection n={next()} title="Financials">
         {pack.snapshot ? (
           <div className="space-y-4">
             {!pack.snapshotIsCurrent ? (
@@ -92,11 +125,10 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
                 {formatPeriod(pack.snapshot.period)}).
               </p>
             ) : null}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Kpi label="Cash" value={fmtUSD(pack.snapshot.cash, { compact: true })} />
-              <Kpi label="ARR" value={fmtUSD(pack.snapshot.arr, { compact: true })} />
-              <Kpi label="Net burn / mo" value={fmtUSD(pack.snapshot.burn, { compact: true })} />
-              <Kpi label="Headcount" value={String(pack.snapshot.headcount)} />
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {cmp.financialDeltas.map((d) => (
+                <DeltaStat key={d.key} d={d} />
+              ))}
             </div>
             {summary.length > 0 ? (
               <ul className="space-y-0.5 rounded-md border-l-4 border-brand-teal bg-muted/40 p-4 text-sm">
@@ -115,11 +147,6 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
                   ]}
                   height={200}
                 />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {MONTH_SHORT[trailing[0].period.getMonth()]} {trailing[0].period.getFullYear()} →{" "}
-                  {MONTH_SHORT[trailing[trailing.length - 1].period.getMonth()]}{" "}
-                  {trailing[trailing.length - 1].period.getFullYear()}
-                </p>
               </div>
             ) : null}
           </div>
@@ -128,8 +155,133 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
         )}
       </PackSection>
 
-      {/* 2. Key projects */}
-      <PackSection n={2} title="Key projects & initiatives">
+      {/* Forecast vs last meeting */}
+      <PackSection n={next()} title="Forecast — how the forward view moved">
+        <div className="space-y-4">
+          {fc.current && fc.previous ? (
+            <>
+              <div>
+                <h4 className="mb-1 text-sm font-medium">
+                  Projected cash: this meeting vs {prevMeeting ? formatDateOnly(prevMeeting.scheduledAt) : "prior"}
+                </h4>
+                <CashChart
+                  curves={[
+                    {
+                      name: `Now (${fc.current.name})`,
+                      color: "#3FABBD",
+                      values: fc.current.projection.rows.map((r) => r.endingCash),
+                    },
+                    {
+                      name: `Last meeting (${fc.previous.name})`,
+                      color: "#B45309",
+                      values: fc.previous.projection.rows.map((r) => r.endingCash),
+                    },
+                  ]}
+                  height={200}
+                />
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full max-w-2xl text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="py-2 pr-4">Headline</th>
+                      <th className="py-2 pr-4">Last meeting</th>
+                      <th className="py-2 pr-4">This meeting</th>
+                      <th className="py-2">Change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <ForecastRow
+                      label="Runway"
+                      prev={fc.previous.runwayMonths != null ? `${fc.previous.runwayMonths} mo` : "CF positive"}
+                      cur={fc.current.runwayMonths != null ? `${fc.current.runwayMonths} mo` : "CF positive"}
+                      change={
+                        fc.current.runwayMonths != null && fc.previous.runwayMonths != null
+                          ? fc.current.runwayMonths - fc.previous.runwayMonths
+                          : null
+                      }
+                      unit=" mo"
+                    />
+                    <ForecastRow
+                      label={`Ending ARR (M${fc.current.horizonMonths})`}
+                      prev={fmtUSD(fc.previous.endingArr, { compact: true })}
+                      cur={fmtUSD(fc.current.endingArr, { compact: true })}
+                      change={fc.current.endingArr - fc.previous.endingArr}
+                      money
+                    />
+                    <ForecastRow
+                      label="Ending cash"
+                      prev={fmtUSD(fc.previous.endingCash, { compact: true })}
+                      cur={fmtUSD(fc.current.endingCash, { compact: true })}
+                      change={fc.current.endingCash - fc.previous.endingCash}
+                      money
+                    />
+                    <ForecastRow
+                      label="Breakeven month"
+                      prev={fc.previous.breakevenMonth != null ? `M${fc.previous.breakevenMonth}` : "beyond horizon"}
+                      cur={fc.current.breakevenMonth != null ? `M${fc.current.breakevenMonth}` : "beyond horizon"}
+                      change={
+                        fc.current.breakevenMonth != null && fc.previous.breakevenMonth != null
+                          ? fc.previous.breakevenMonth - fc.current.breakevenMonth // earlier is better
+                          : null
+                      }
+                      unit=" mo earlier"
+                    />
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : fc.current ? (
+            <p className="text-sm text-muted-foreground">
+              Forecast captured for this meeting ({fc.current.name}, {formatDateOnly(fc.current.createdAt)}).{" "}
+              {prevMeeting
+                ? "No forecast was captured at the previous meeting, so there's nothing to compare against yet — the comparison starts next meeting."
+                : "Comparisons begin once a second meeting has a captured forecast."}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No forecast captured for this meeting yet.
+              {manager && scenarios.length === 0 ? (
+                <>
+                  {" "}
+                  Create a scenario plan under{" "}
+                  <Link href="/financials" className="text-primary hover:underline">
+                    Financials
+                  </Link>{" "}
+                  first.
+                </>
+              ) : null}
+            </p>
+          )}
+
+          {manager && scenarios.length > 0 ? (
+            <form action={captureForecast} className="flex flex-wrap items-end gap-2 border-t pt-4">
+              <input type="hidden" name="meetingId" value={meeting.id} />
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {fc.current ? "Re-capture the forecast for this meeting" : "Capture the current forecast for this meeting"}
+                </p>
+                <Select name="scenarioId" defaultValue={fc.current?.sourceScenarioId ?? scenarios[0].s.id}>
+                  <SelectTrigger className="w-72">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {scenarios.map(({ s, planName }) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {planName} — {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button type="submit">Capture forecast</Button>
+            </form>
+          ) : null}
+        </div>
+      </PackSection>
+
+      {/* Key projects */}
+      <PackSection n={next()} title="Key projects & initiatives">
         {pack.projects.length === 0 ? (
           <Empty text="No active projects tracked." href="/projects" cta="Add projects" />
         ) : (
@@ -138,13 +290,26 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
               const update = pack.projectUpdates.find((x) => x.u.projectId === p.id);
               const ms = pack.milestones.filter((x) => x.projectId === p.id);
               const done = ms.filter((x) => x.m.status === "DONE").length;
+              const change = cmp.projectChanges.find((x) => x.projectId === p.id);
               return (
                 <div key={p.id} className="rounded-md border p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <Link href={`/projects/${p.id}`} className="font-semibold text-primary hover:underline">
                       {p.name}
                     </Link>
-                    <ProjectStatusBadge status={update?.u.status ?? p.status} />
+                    <ProjectStatusBadge status={change?.currentStatus ?? p.status} />
+                    {change?.isNew ? (
+                      <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
+                        New since last meeting
+                      </span>
+                    ) : (
+                      <Transition
+                        from={change?.previousStatus ?? null}
+                        to={change?.currentStatus ?? null}
+                        labels={PROJECT_STATUS_LABELS}
+                        quiet
+                      />
+                    )}
                     {ms.length > 0 ? (
                       <span className="text-xs text-muted-foreground">
                         {done}/{ms.length} milestones
@@ -182,8 +347,16 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
         )}
       </PackSection>
 
-      {/* 3. Challenges & risks */}
-      <PackSection n={3} title="Challenges & risks">
+      {/* Challenges & risks */}
+      <PackSection
+        n={next()}
+        title="Challenges & risks"
+        subtitle={
+          prevMeeting
+            ? `${cmp.newRisks.length} new and ${cmp.closedRiskCount} closed since last meeting`
+            : undefined
+        }
+      >
         {pack.risks.length === 0 ? (
           <Empty text="The risk register is empty." href="/risks" cta="Open risk register" />
         ) : (
@@ -199,31 +372,47 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
                 </tr>
               </thead>
               <tbody>
-                {pack.risks.map((r) => (
-                  <tr key={r.id} className="border-b align-top last:border-0">
-                    <td className="py-2.5 pr-4">
-                      <Link href={`/risks/${r.id}`} className="font-medium text-primary hover:underline">
-                        {r.title}
-                      </Link>
-                    </td>
-                    <td className="py-2.5 pr-4">{RISK_CATEGORY_LABELS[r.category] ?? r.category}</td>
-                    <td className="py-2.5 pr-4">
-                      <RiskSeverityBadge likelihood={r.likelihood} impact={r.impact} />
-                    </td>
-                    <td className="py-2.5 pr-4">
-                      <RiskStatusBadge status={r.status} />
-                    </td>
-                    <td className="py-2.5 text-muted-foreground">{r.mitigation ?? "—"}</td>
-                  </tr>
-                ))}
+                {pack.risks.map((r) => {
+                  const isNew = cmp.newRisks.some((x) => x.id === r.id);
+                  return (
+                    <tr key={r.id} className="border-b align-top last:border-0">
+                      <td className="py-2.5 pr-4">
+                        <Link href={`/risks/${r.id}`} className="font-medium text-primary hover:underline">
+                          {r.title}
+                        </Link>
+                        {isNew ? (
+                          <span className="ml-2 rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
+                            new
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="py-2.5 pr-4">{RISK_CATEGORY_LABELS[r.category] ?? r.category}</td>
+                      <td className="py-2.5 pr-4">
+                        <RiskSeverityBadge likelihood={r.likelihood} impact={r.impact} />
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <RiskStatusBadge status={r.status} />
+                      </td>
+                      <td className="py-2.5 text-muted-foreground">{r.mitigation ?? "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </PackSection>
 
-      {/* 4. Team */}
-      <PackSection n={4} title="Team">
+      {/* Team */}
+      <PackSection
+        n={next()}
+        title="Team"
+        subtitle={
+          cmp.headcountDelta != null && cmp.headcountDelta !== 0
+            ? `headcount ${cmp.headcountDelta > 0 ? "+" : ""}${cmp.headcountDelta} since last meeting`
+            : undefined
+        }
+      >
         {pack.teamUpdate ? (
           <div className="space-y-2 text-sm">
             {pack.teamUpdate.headline ? <p className="font-medium">{pack.teamUpdate.headline}</p> : null}
@@ -231,7 +420,9 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
               <p className="whitespace-pre-wrap text-muted-foreground">{pack.teamUpdate.body}</p>
             ) : null}
             <div className="grid gap-2 sm:grid-cols-4">
-              {pack.teamUpdate.headcount != null ? <MiniFact label="Headcount" value={String(pack.teamUpdate.headcount)} /> : null}
+              {pack.teamUpdate.headcount != null ? (
+                <MiniFact label="Headcount" value={String(pack.teamUpdate.headcount)} />
+              ) : null}
               {pack.teamUpdate.hires ? <MiniFact label="Hires" value={pack.teamUpdate.hires} /> : null}
               {pack.teamUpdate.departures ? <MiniFact label="Departures" value={pack.teamUpdate.departures} /> : null}
               {pack.teamUpdate.openRoles ? <MiniFact label="Open roles" value={pack.teamUpdate.openRoles} /> : null}
@@ -242,14 +433,15 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
         )}
       </PackSection>
 
-      {/* 5. Key customers */}
-      <PackSection n={5} title="Key customers">
+      {/* Key customers */}
+      <PackSection n={next()} title="Key customers">
         {pack.customers.length === 0 ? (
           <Empty text="No customers tracked." href="/customers" cta="Add customers" />
         ) : (
           <ul className="space-y-2">
             {pack.customers.map((c) => {
               const u = pack.customerUpdates.find((x) => x.u.customerId === c.id);
+              const change = cmp.customerChanges.find((x) => x.customerId === c.id);
               return (
                 <li key={c.id} className="flex flex-wrap items-start justify-between gap-2 rounded-md border p-3 text-sm">
                   <div>
@@ -258,7 +450,15 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
                         {c.name}
                       </Link>
                       <CustomerStatusBadge status={c.status} />
-                      {c.arr ? <span className="text-xs text-muted-foreground">{fmtUSD(c.arr, { compact: true })} ARR</span> : null}
+                      {c.arr ? (
+                        <span className="text-xs text-muted-foreground">{fmtUSD(c.arr, { compact: true })} ARR</span>
+                      ) : null}
+                      <Transition
+                        from={change?.previousHealth ?? null}
+                        to={change?.currentHealth ?? null}
+                        labels={CUSTOMER_HEALTH_LABELS}
+                        quiet
+                      />
                     </div>
                     {u?.u.note ? <p className="mt-1 text-muted-foreground">{u.u.note}</p> : null}
                   </div>
@@ -270,16 +470,14 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
         )}
       </PackSection>
 
-      {/* 6. Sales & GTM */}
-      <PackSection n={6} title="Sales & go-to-market">
+      {/* Sales & GTM */}
+      <PackSection n={next()} title="Sales & go-to-market">
         {pack.gtmUpdate ? (
           <div className="space-y-3 text-sm">
-            <div className="grid gap-4 sm:grid-cols-5">
-              <Kpi label="Pipeline" value={fmtUSD(pack.gtmUpdate.pipelineValue, { compact: true })} />
-              <Kpi label="Qualified leads" value={String(pack.gtmUpdate.qualifiedLeads)} />
-              <Kpi label="New wins" value={String(pack.gtmUpdate.newWins)} />
-              <Kpi label="Lost" value={String(pack.gtmUpdate.lostDeals)} />
-              <Kpi label="New ARR" value={fmtUSD(pack.gtmUpdate.newArr, { compact: true })} />
+            <div className="grid gap-3 sm:grid-cols-4">
+              {cmp.gtmDeltas.map((d) => (
+                <DeltaStat key={d.key} d={d} />
+              ))}
             </div>
             {pack.gtmUpdate.headline ? <p className="font-medium">{pack.gtmUpdate.headline}</p> : null}
             {pack.gtmUpdate.body ? <p className="whitespace-pre-wrap text-muted-foreground">{pack.gtmUpdate.body}</p> : null}
@@ -289,9 +487,9 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
         )}
       </PackSection>
 
-      {/* 7. Narrative reports */}
+      {/* Narrative reports */}
       {meetingReports.length > 0 ? (
-        <PackSection n={7} title="Narrative reports">
+        <PackSection n={next()} title="Narrative reports">
           <ul className="space-y-2 text-sm">
             {meetingReports.map((r) => (
               <li key={r.id}>
@@ -304,8 +502,8 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
         </PackSection>
       ) : null}
 
-      {/* 8. Agenda, decisions, actions, minutes */}
-      <PackSection n={meetingReports.length > 0 ? 8 : 7} title="Meeting: agenda, decisions & minutes">
+      {/* Agenda, decisions, actions, minutes */}
+      <PackSection n={next()} title="Meeting: agenda, decisions & minutes">
         <div className="grid gap-6 lg:grid-cols-2">
           <div>
             <h4 className="mb-2 text-sm font-semibold">Agenda</h4>
@@ -374,7 +572,17 @@ export default async function BoardPackPage({ params }: { params: Promise<{ id: 
   );
 }
 
-function PackSection({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+function PackSection({
+  n,
+  title,
+  subtitle,
+  children,
+}: {
+  n: number;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -383,6 +591,7 @@ function PackSection({ n, title, children }: { n: number; title: string; childre
             {n}
           </span>
           {title}
+          {subtitle ? <span className="text-sm font-normal text-muted-foreground">· {subtitle}</span> : null}
         </CardTitle>
       </CardHeader>
       <CardContent>{children}</CardContent>
@@ -390,12 +599,34 @@ function PackSection({ n, title, children }: { n: number; title: string; childre
   );
 }
 
-function Kpi({ label, value }: { label: string; value: string }) {
+function ForecastRow({
+  label,
+  prev,
+  cur,
+  change,
+  money,
+  unit = "",
+}: {
+  label: string;
+  prev: string;
+  cur: string;
+  change: number | null;
+  money?: boolean;
+  unit?: string;
+}) {
   return (
-    <div className="rounded-md border p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-xl font-bold">{value}</p>
-    </div>
+    <tr className="border-b last:border-0">
+      <td className="py-2 pr-4 font-medium">{label}</td>
+      <td className="py-2 pr-4 text-muted-foreground">{prev}</td>
+      <td className="py-2 pr-4">{cur}</td>
+      <td className={`py-2 text-xs font-medium ${change == null || change === 0 ? "text-muted-foreground" : change > 0 ? "text-emerald-700" : "text-red-700"}`}>
+        {change == null
+          ? "—"
+          : change === 0
+            ? "unchanged"
+            : `${change > 0 ? "+" : "−"}${money ? fmtUSD(Math.abs(change), { compact: true }) : Math.abs(change)}${money ? "" : unit}`}
+      </td>
+    </tr>
   );
 }
 

@@ -1,6 +1,8 @@
 import bcrypt from "bcryptjs";
 import * as schema from "./schema";
 import { eq, inArray, like } from "drizzle-orm";
+import { projectScenario, type ScenarioAssumptions } from "../lib/finance";
+import { BUILTIN_TEMPLATES } from "../lib/report-template-defs";
 import { drizzle as drizzlePg, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { drizzle as drizzleLite } from "drizzle-orm/pglite";
 
@@ -33,18 +35,13 @@ async function connect() {
 const {
   users, organizations, memberships, meetings, agendaItems, attendances,
   resolutions, votes, actionItems, reportTemplates, reports, financialPlans,
-  financialScenarios, coachingPrograms, coachingLessons, coachingClients,
-  lessonAssignments, coachingSessions, retreatActivities, retreats,
-  retreatAgendaItems, retreatTemplates, financialSnapshots,
+  financialScenarios,
+  financialSnapshots, forecastSnapshots,
   risks, riskReviews, projects, projectMilestones, projectUpdates,
   teamUpdates, customers, customerUpdates, gtmUpdates,
 } = schema;
 
-import { LEADERSHIP_DAY_AGENDA, LEADERSHIP_DAY_INTAKE, LEADERSHIP_DAY_PHILOSOPHY } from "./seed-content";
 
-function genToken(prefix = "") {
-  return prefix + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 8);
-}
 
 async function main() {
   // Guard: refuse to run against production unless explicitly authorized.
@@ -72,11 +69,8 @@ async function main() {
   // ── Wipe demo data (idempotent re-seeds) ─────────────────────────────
   // Children before parents; FKs cascade the rest.
   const wipeAll = [
-    riskReviews, risks, projectUpdates, projectMilestones, projects,
+    forecastSnapshots, riskReviews, risks, projectUpdates, projectMilestones, projects,
     teamUpdates, customerUpdates, customers, gtmUpdates, financialSnapshots,
-    schema.retreatIntakeResponses, retreatTemplates, schema.retreatTakeaways,
-    retreatAgendaItems, retreats, retreatActivities,
-    coachingSessions, lessonAssignments, coachingClients, coachingLessons, coachingPrograms,
     financialScenarios, financialPlans, reports, reportTemplates,
     votes, attendances, agendaItems, actionItems, schema.documents,
     resolutions, meetings, memberships,
@@ -166,7 +160,7 @@ async function main() {
     { userId: danny.id, organizationId: harbor.id, role: "DIRECTOR", title: "Independent Director", organizationLabel: "Side Quest Strategies", votingRights: true },
   ]);
 
-  // ── Acme: rich data (rep mtg, upcoming mtg, resolutions, action items, financial plan, retreat) ──
+  // ── Acme: rich data (rep mtg, upcoming mtg, resolutions, action items, financial plan) ──
   const acmePastDate = new Date(); acmePastDate.setDate(acmePastDate.getDate() - 30); acmePastDate.setHours(10, 0, 0, 0);
   const acmeUpcomingDate = new Date(); acmeUpcomingDate.setDate(acmeUpcomingDate.getDate() + 21); acmeUpcomingDate.setHours(10, 0, 0, 0);
 
@@ -248,10 +242,43 @@ async function main() {
     description: "Three-scenario model for the Q2 board meeting strategy discussion.",
     horizonMonths: 24, startingCash: 12000000, startMonth: acmeStartMonth,
   }).returning();
-  await db.insert(financialScenarios).values([
+  const acmeScenarios = await db.insert(financialScenarios).values([
     { planId: acmePlan.id, name: "Base case", kind: "BASE", assumptions: JSON.stringify({ startingMRR: 333000, monthlyGrowthPct: 7, churnPct: 2, grossMarginPct: 72, monthlyOpexBase: 240000, opexGrowthPct: 1.5, headcountStart: 38, monthlyHires: 1.5, avgFullyLoadedSalary: 195000 }), notes: "Plan-of-record. 7% MoM growth, 38→74 headcount over horizon." },
     { planId: acmePlan.id, name: "Upside", kind: "UPSIDE", assumptions: JSON.stringify({ startingMRR: 333000, monthlyGrowthPct: 11, churnPct: 1.5, grossMarginPct: 75, monthlyOpexBase: 240000, opexGrowthPct: 1.2, headcountStart: 38, monthlyHires: 2.5, avgFullyLoadedSalary: 195000 }), notes: "Enterprise motion lands. Justifies accelerated GTM hiring." },
     { planId: acmePlan.id, name: "Downside", kind: "DOWNSIDE", assumptions: JSON.stringify({ startingMRR: 333000, monthlyGrowthPct: 4, churnPct: 3, grossMarginPct: 70, monthlyOpexBase: 240000, opexGrowthPct: 1, headcountStart: 38, monthlyHires: 0.3, avgFullyLoadedSalary: 195000 }), notes: "Macro slowdown + one large logo churns. Hiring freeze; runway extension to 28 months." },
+  ]).returning();
+  const acmeBase = acmeScenarios.find((x) => x.kind === "BASE")!;
+
+  
+  // Forecast snapshots: one per meeting so the hub shows how the forward
+  // view moved. Last quarter's forecast was rosier (9% growth); the current
+  // capture uses the plan-of-record base case.
+  const oldAssumptions: ScenarioAssumptions = {
+    startingMRR: 310000, monthlyGrowthPct: 9, churnPct: 1.5, grossMarginPct: 73,
+    monthlyOpexBase: 230000, opexGrowthPct: 1.5, headcountStart: 35, monthlyHires: 2,
+    avgFullyLoadedSalary: 195000,
+  };
+  const baseAssumptions = JSON.parse(acmeBase.assumptions) as ScenarioAssumptions;
+  const oldProj = projectScenario(12600000, acmeStartMonth, 24, oldAssumptions);
+  const newProj = projectScenario(12000000, acmeStartMonth, 24, baseAssumptions);
+  await db.insert(forecastSnapshots).values([
+    {
+      organizationId: acme.id, meetingId: acmePast.id, name: "Base case",
+      assumptions: JSON.stringify(oldAssumptions), startingCash: 12600000,
+      startMonth: acmeStartMonth, horizonMonths: 24,
+      runwayMonths: oldProj.runwayMonths, endingArr: oldProj.endingARR,
+      endingCash: oldProj.endingCash, breakevenMonth: oldProj.breakevenMonth,
+      createdById: rileyAcme.id, createdAt: acmePastDate,
+    },
+    {
+      organizationId: acme.id, meetingId: acmeUpcoming.id, name: "Base case",
+      sourceScenarioId: acmeBase.id,
+      assumptions: acmeBase.assumptions, startingCash: 12000000,
+      startMonth: acmeStartMonth, horizonMonths: 24,
+      runwayMonths: newProj.runwayMonths, endingArr: newProj.endingARR,
+      endingCash: newProj.endingCash, breakevenMonth: newProj.breakevenMonth,
+      createdById: rileyAcme.id,
+    },
   ]);
 
   // ── Acme: board-reporting demo data (snapshots, risks, projects, team, customers, GTM) ──
@@ -363,89 +390,47 @@ async function main() {
     { organizationId: acme.id, period: thisPeriod, headline: "Largest-ever deal closed; enterprise pipeline forming behind SOC 2", body: "Closed Acme Logistics expansion ($420k ACV). Two enterprise deals ($700k combined) are technically won but blocked on SOC 2 Type II — see risk register. Priya's first-30-days focus: pipeline hygiene and win/loss discipline.", pipelineValue: 8400000, qualifiedLeads: 26, newWins: 4, lostDeals: 2, newArr: 720000, authorId: rileyAcme.id },
   ]);
 
-  // Acme retreat
-  const acmeRetreatStart = new Date(); acmeRetreatStart.setDate(acmeRetreatStart.getDate() + 35); acmeRetreatStart.setHours(9, 0, 0, 0);
-  const acmeRetreatEnd = new Date(acmeRetreatStart); acmeRetreatEnd.setDate(acmeRetreatEnd.getDate() + 1); acmeRetreatEnd.setHours(17, 0, 0, 0);
-  const [acmeRetreat] = await db.insert(retreats).values({
-    organizationId: acme.id, organizerId: rileyAcme.id,
-    title: "Acme Robotics Leadership Offsite — Summer 2026",
-    description: "Two-day offsite for the exec team. Focus: align on the FY2026 plan, surface risks, and reset team operating norms ahead of Series B.",
-    location: "Cavallo Point, Sausalito CA",
-    startDate: acmeRetreatStart, endDate: acmeRetreatEnd,
-    status: "PLANNING",
-    intakeToken: genToken("rt_"), intakeOpen: true,
-    philosophy: LEADERSHIP_DAY_PHILOSOPHY,
-  }).returning();
-  await db.insert(retreatAgendaItems).values([
-    { retreatId: acmeRetreat.id, order: 1, title: "Welcome + retreat objectives", durationMin: 20, facilitatorName: "Riley" },
-    { retreatId: acmeRetreat.id, order: 2, title: "Two truths and a stretch (icebreaker)", durationMin: 20 },
-    { retreatId: acmeRetreat.id, order: 3, title: "Trust check-in (personal histories)", durationMin: 60 },
-    { retreatId: acmeRetreat.id, order: 4, title: "FY2026 plan walkthrough", durationMin: 90, facilitatorName: "Riley" },
-    { retreatId: acmeRetreat.id, order: 5, title: "Pre-mortem on the plan", durationMin: 75 },
-    { retreatId: acmeRetreat.id, order: 6, title: "Hot-seat coaching round 1", durationMin: 90 },
-    { retreatId: acmeRetreat.id, order: 7, title: "Team agreements drafting", durationMin: 60 },
-    { retreatId: acmeRetreat.id, order: 8, title: "Stop / start / continue close", durationMin: 45 },
-  ]);
+  // Global best-practice templates (same definitions the app self-provisions
+  // in production) + one org-scoped extra for the demo.
+  const [tplMonthly, tplQuarterly] = await db.insert(reportTemplates).values(
+    BUILTIN_TEMPLATES.map((t) => ({
+      organizationId: null,
+      name: t.name,
+      description: t.description,
+      sections: JSON.stringify(t.sections),
+      isGlobal: true,
+    }))
+  ).returning();
+  void tplMonthly;
 
-  // Quarterly board update template (rich, structured)
-  const quarterlyUpdateSections = [
-    { id: "tldr", title: "TL;DR", kind: "rich", prompt: "3-4 sentences. What's the headline of this period? What do you want the board to walk away thinking?" },
-    { id: "highlights", title: "Highlights", kind: "rich", prompt: "What went well this period? 3-5 specific wins with metrics where possible." },
-    { id: "lowlights", title: "Lowlights & risks", kind: "rich", prompt: "What didn't go well, and what are we doing about it? Be specific — vague concerns help no one." },
-    { id: "kpis", title: "Key metrics", kind: "metric", prompt: "ARR, growth rate, burn, runway, NPS, headcount. Include period-over-period comparison." },
-    { id: "product", title: "Product & engineering", kind: "rich", prompt: "What shipped. What's next. Customer adoption and feedback themes." },
-    { id: "gtm", title: "Go-to-market", kind: "rich", prompt: "Pipeline, key wins, key losses, motion changes." },
-    { id: "hiring", title: "Hiring & people", kind: "rich", prompt: "Roles open, key hires made, attrition, leadership development." },
-    { id: "asks", title: "Asks of the board", kind: "rich", prompt: "Specific introductions, advice, or decisions needed. Make these actionable." },
-  ];
-  const [tplCEO] = await db.insert(reportTemplates).values({
-    organizationId: acme.id,
-    name: "Quarterly Board Update",
-    description: "Comprehensive CEO update for the formal quarterly board meeting.",
-    sections: JSON.stringify(quarterlyUpdateSections),
-  }).returning();
-
-  // Monthly investor / board update — tighter
-  const monthlyUpdateSections = [
-    { id: "headline", title: "Headline", kind: "rich", prompt: "1-2 sentences. What's the most important thing about this month?" },
-    { id: "metrics", title: "Key metrics this month", kind: "metric", prompt: "ARR/MRR · MoM growth · burn · runway · headcount" },
-    { id: "wins", title: "Wins", kind: "rich", prompt: "3-5 bullets with names, numbers, or links." },
-    { id: "challenges", title: "Challenges", kind: "rich", prompt: "What's hard right now? What are you doing about it?" },
-    { id: "asks", title: "Asks", kind: "rich", prompt: "Specific intros or advice. Bullet form." },
-  ];
-  await db.insert(reportTemplates).values({
-    organizationId: acme.id,
-    name: "Monthly Investor Update",
-    description: "Tight monthly update — for emails to the broader investor list, not the formal board meeting.",
-    sections: JSON.stringify(monthlyUpdateSections),
-  });
-
-  // Fundraising update
-  const fundraisingSections = [
-    { id: "round", title: "Round overview", kind: "rich", prompt: "Stage, target raise, valuation, lead status." },
-    { id: "investors", title: "Investor pipeline", kind: "rich", prompt: "Engaged firms with status (passed / DD / TS issued)." },
-    { id: "timeline", title: "Timeline", kind: "rich", prompt: "Targeted close date and key milestones." },
-    { id: "use", title: "Use of proceeds", kind: "rich", prompt: "How the next round funds the plan." },
-  ];
   await db.insert(reportTemplates).values({
     organizationId: acme.id,
     name: "Fundraising Update",
     description: "Status of the current round: pipeline, terms, timeline.",
-    sections: JSON.stringify(fundraisingSections),
+    sections: JSON.stringify([
+      { id: "round", title: "Round overview", kind: "rich", prompt: "Stage, target raise, valuation, lead status." },
+      { id: "investors", title: "Investor pipeline", kind: "rich", prompt: "Engaged firms with status (passed / DD / TS issued)." },
+      { id: "timeline", title: "Timeline", kind: "rich", prompt: "Targeted close date and key milestones." },
+      { id: "use", title: "Use of proceeds", kind: "rich", prompt: "How the next round funds the plan." },
+    ]),
   });
 
   await db.insert(reports).values({
-    organizationId: acme.id, templateId: tplCEO.id, meetingId: acmeUpcoming.id, authorId: rileyAcme.id,
-    title: "Acme — Q2 2026 Board Update", status: "DRAFT",
+    organizationId: acme.id, templateId: tplQuarterly.id, meetingId: acmeUpcoming.id, authorId: rileyAcme.id,
+    title: "Acme — Q2 2026 Quarterly Board Report", status: "DRAFT",
     values: JSON.stringify({
-      tldr: "Strong quarter: $4M ARR (+28% QoQ), our largest deal ever, and a key VP Sales hire. Two mid-market churns dropped NRR to 108% — addressable. Series B prep is on track for an early Q4 launch.",
-      highlights: "• Crossed $4M ARR (up from $3.1M last quarter)\n• Closed Acme Logistics ($420k ACV) — largest deal to date\n• Shipped v3 of the Fleet Manager UI\n• Hired VP Sales (Priya from CloudOps)",
-      lowlights: "• Net retention dipped to 108% (from 115%) — two churned customers in mid-market. Root-causing this month with the CS team.\n• AWS bill grew 22% MoM; FinOps initiative kicking off in May with goal of 15% reduction by Q4.",
-      kpis: "ARR: $4.0M (+28% QoQ) · Burn: $480k/mo · Runway: 18 months · NPS: 52 (+4) · Headcount: 38 (+5)",
-      product: "Shipped: Fleet Manager v3 UI, multi-tenant scoping, audit log API. Next quarter: enterprise SSO, role-based permissions, and the predictive maintenance MVP. NPS feedback themes: speed (+), mobile gaps (-), reporting flexibility (+).",
-      gtm: "Pipeline: $8.4M weighted (up from $5.1M). Closed-won: 4 deals avg $180k ACV. Closed-lost: 2 to incumbent (price), 1 to internal build. Expanded mid-market motion with named-account model — early signal positive.",
-      hiring: "Open: Sr. Backend Eng, Customer Success Lead, FP&A Manager. Started: Priya Mehta (VP Sales). Attrition: 0. Leadership development: rolling out Lencioni-style team trust workshops in Q3.",
-      asks: "1. Intros at Series B funds focused on vertical SaaS — particularly Tier 1 firms with logistics or fleet experience\n2. Help reviewing the FY2027 hiring plan ahead of next board\n3. Recommendation for an interim Head of Marketing while we run a search",
+      ceo_letter: "Strong quarter: $4M ARR (+28% QoQ), our largest deal ever, and a key VP Sales hire. Two mid-market churns dropped NRR to 108% — addressable, and the root-cause work is underway. Series B prep is on track for an early Q4 launch. What I believe now that I didn't in March: the predictive-maintenance wedge is the enterprise story, not a feature.",
+      metrics: "ARR: $4.0M (+28% QoQ) · Burn: $480k/mo · Runway: 18 months · NPS: 52 (+4) · Headcount: 38 (+5)",
+      financials: "Revenue finished 4% above plan on the Acme Logistics expansion. Gross margin at 72% (+1pt) as hosting optimization landed. Burn crept to $480k/mo on the VP Sales hire — within the approved envelope. AR at 1.4× monthly revenue; no collection concerns.",
+      forecast: "Base case now assumes 7% MoM growth (was 9% at the last meeting) after the mid-market churns; hiring plan trimmed by 2 heads in H2. Runway effect: −2 months vs prior forecast. See the forecast comparison in the board pack.",
+      strategy: "1. Enterprise readiness — AT RISK (SOC 2 window slipped 3 weeks). 2. Predictive-maintenance wedge — ON TRACK (3/5 design partners live). 3. Series B — ON TRACK (narrative v1 done). 4. Mid-market NRR recovery — NEW this quarter.",
+      product: "Shipped: Fleet Manager v3, SSO, audit-log API. Predictive maintenance MVP live with 3 design partners; first real save (9-day early actuator failure prediction) at Acme Logistics. Next: RBAC, partner #4–5, GA pricing.",
+      gtm: "Pipeline $8.4M weighted (up from $5.1M). Closed-won 4 deals, avg $180k ACV. Two enterprise deals ($700k combined) technically won but blocked on SOC 2. Priya (VP Sales) rebuilding pipeline hygiene and win/loss discipline.",
+      customers: "Acme Logistics expanded ($420k ACV, largest ever). National Parcel at-risk — new procurement lead benchmarking us; exec dinner on the 14th. Metro Transit depot #2 pilot in legal. Pacific Cold Chain pilot SLA at 97.2% vs 98% target, cure plan agreed.",
+      team: "Priya Mehta started as VP Sales. Zero regretted attrition for 6 months. Open: CS Lead, FP&A Manager, Staff Perception Eng. Watch: perception team stretched until the architecture-lead promotion lands.",
+      risks: "New since last quarter: mid-market churn concentration. Escalated: supplier single-sourcing (second source in qualification, buffer at 6/10 weeks). Closed: AWS cost overrun (bill −17%). Register reviewed in full in the board pack.",
+      governance: "Option grants for 5 new hires attached for approval (Exhibit A). No cap-table changes. SOC 2 Type II evidence collection 60% complete. No outstanding legal matters.",
+      asks: "1. Intros to Tier-1 Series B funds with logistics/fleet theses. 2. Approve the attached option grants. 3. A reference customer intro for partner #6 on the predictive-maintenance waitlist.",
     }),
   });
 
@@ -548,71 +533,9 @@ async function main() {
     { planId: hbPlan.id, name: "Conservative", kind: "DOWNSIDE", assumptions: JSON.stringify({ startingMRR: 342000, monthlyGrowthPct: 5, churnPct: 2.5, grossMarginPct: 72, monthlyOpexBase: 280000, opexGrowthPct: 1.5, headcountStart: 41, monthlyHires: 0.5, avgFullyLoadedSalary: 168000 }), notes: "Defer Germany. Extend runway to 30 months." },
   ]);
 
-  // ── Coaching (lives under Danny's user, NOT under any single org) ──
-  const [foundersProgram, execProgram] = await db.insert(coachingPrograms).values([
-    { ownerId: danny.id, title: "First-Time Founder Fundamentals", description: "Eight-week program for first-time founders building their first board and exec team.", kind: "FOUNDER" },
-    { ownerId: danny.id, title: "Series A → Series B Operator", description: "For CEOs scaling from product-market fit to repeatable GTM.", kind: "EXEC" },
-  ]).returning();
-
-  await db.insert(coachingLessons).values([
-    { programId: foundersProgram.id, order: 1, title: "Defining your operating cadence", durationMin: 60, body: "Establish the rhythm that lets a startup compound. Daily, weekly, monthly, quarterly — what runs at each layer? We'll design your first 90 days of meetings, decision logs, and metrics rituals.", exercises: JSON.stringify([{ title: "Cadence inventory", prompt: "List every meeting on your calendar this week. Tag each: ship, decide, align, info. Cut anything that's pure 'info.'" }]) },
-    { programId: foundersProgram.id, order: 2, title: "Hiring your first ten — without bottlenecking yourself", durationMin: 75, body: "Founders hire from their network too long. We'll build a hiring pipeline and an interviewing process that scales past the first ten.", exercises: JSON.stringify([{ title: "Role scorecard", prompt: "Write a one-page scorecard for the next role you'll hire. Outcomes, competencies, must-haves vs nice-to-haves." }]) },
-    { programId: foundersProgram.id, order: 3, title: "Running a board meeting that's actually useful", durationMin: 90, body: "The default board meeting is performative. We'll redesign yours.", exercises: JSON.stringify([{ title: "Pre-read audit", prompt: "Take last quarter's board pack. Highlight every section that was duplicated in the live meeting." }]) },
-    { programId: execProgram.id, order: 1, title: "The CEO's job changes at $5M ARR", durationMin: 60, body: "At PMF you sold and built. At Series A → B you build the team that builds the company.", exercises: JSON.stringify([{ title: "Time audit", prompt: "Categorize last week's calendar into: building, selling, hiring, managing, fundraising, customer-facing, internal." }]) },
-    { programId: execProgram.id, order: 2, title: "Building your first executive team", durationMin: 75, body: "When to hire a VP, when an interim, when to promote." },
-  ]);
-
-  // Coaching clients — Maya and Liam are also founder users in their own orgs
-  const [client1, client2, client3] = await db.insert(coachingClients).values([
-    { ownerId: danny.id, programId: foundersProgram.id, name: "Maya Okonkwo", email: "maya@northstar.demo", company: "Northstar Grid", role: "Founder & CEO", status: "ACTIVE", startDate: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000), notes: "Series Seed climate tech. Strong product instincts, learning to run an exec team." },
-    { ownerId: danny.id, programId: execProgram.id, name: "Liam Ó Briain", email: "liam@harbor.demo", company: "Harbor Logics", role: "CEO", status: "ACTIVE", startDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000), notes: "Series A logistics SaaS. Working on Series B prep and the GTM motion split between SMB and mid-market." },
-    { ownerId: danny.id, name: "Alia Rasheed", email: "alia@verdant.demo", company: "Verdant Inc.", role: "Co-founder & CTO", status: "PAUSED", notes: "Interest in upgrading from CTO to two-in-a-box co-CEO model. Paused while she fundraises." },
-  ]).returning();
-
-  const foundersLessons = await db.select().from(coachingLessons).where(eq(coachingLessons.programId, foundersProgram.id));
-  const execLessons = await db.select().from(coachingLessons).where(eq(coachingLessons.programId, execProgram.id));
-  if (foundersLessons.length) {
-    await db.insert(lessonAssignments).values([
-      { lessonId: foundersLessons[0].id, clientId: client1.id, status: "COMPLETED", completedAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
-      { lessonId: foundersLessons[1].id, clientId: client1.id, status: "IN_PROGRESS" },
-      { lessonId: foundersLessons[2].id, clientId: client1.id, status: "ASSIGNED" },
-    ]);
-  }
-  if (execLessons.length) {
-    await db.insert(lessonAssignments).values([
-      { lessonId: execLessons[0].id, clientId: client2.id, status: "COMPLETED", completedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
-      { lessonId: execLessons[1].id, clientId: client2.id, status: "IN_PROGRESS" },
-    ]);
-  }
-  await db.insert(coachingSessions).values([
-    { clientId: client1.id, ownerId: danny.id, sessionDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), durationMin: 60, topic: "Hiring her first VP Eng", notes: "Maya is interviewing two finalists. Worked through a scorecard.", followUps: "Send the scorecard template. Intro to two references." },
-    { clientId: client2.id, ownerId: danny.id, sessionDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), durationMin: 75, topic: "Series B narrative", notes: "Liam workshopped his fundraising story. Strong on the wedge but the moat slide is weak.", followUps: "Liam to revise the moat slide and send by Friday." },
-  ]);
-  void client3;
-
-  // ── Retreat library (global, available to all orgs) ─────────────────
-  await db.insert(retreatActivities).values([
-    { title: "Two truths and a stretch", kind: "ICEBREAKER", durationMin: 20, groupSizeMin: 4, groupSizeMax: 30, description: "A spin on Two Truths and a Lie — instead of a lie, the third statement is something the person is stretching to do this year.", instructions: "Each person shares two true things and one stretch goal. The group guesses which is the stretch.", learningObjectives: "Lower social barrier; surface ambitions; create empathy.", isGlobal: true },
-    { title: "Pre-mortem", kind: "STRATEGIC", durationMin: 75, groupSizeMin: 4, groupSizeMax: 20, description: "Imagine it's 12 months from now and the strategy failed. Work backward to identify the most likely failure modes.", instructions: "1. Set the scene (5m).\n2. Silent writing — top 3 reasons we failed (10m).\n3. Group affinity-mapping (20m).\n4. Vote on top 3 (10m).\n5. Each top risk gets a mitigation owner and check-in cadence (30m).", materials: "Sticky notes, sharpies, dot-vote stickers, large wall surface.", learningObjectives: "De-risk the plan; force psychological safety around dissent.", isGlobal: true },
-    { title: "Trust check-in (Lencioni style)", kind: "TRUST", durationMin: 60, groupSizeMin: 5, groupSizeMax: 12, description: "Personal histories exercise to deepen vulnerability-based trust on a leadership team.", instructions: "Each person shares: where they grew up, number of siblings, biggest challenge as a kid. Facilitator goes first to model openness.", learningObjectives: "Build vulnerability-based trust; humanize leadership team members.", isGlobal: true },
-    { title: "Hot seat coaching", kind: "LEADERSHIP", durationMin: 90, groupSizeMin: 4, groupSizeMax: 8, description: "Each leader gets 15 minutes of group coaching on a real challenge.", instructions: "Person on the hot seat states their challenge in 90s. Group asks clarifying questions only for 5m. Group offers observations and reframes (not advice) for 8m. Hot seat reflects.", materials: "Timer; quiet space.", learningObjectives: "Practice peer coaching; build leadership skill of receiving feedback.", isGlobal: true },
-    { title: "Team agreements drafting", kind: "TEAM_SKILL", durationMin: 60, groupSizeMin: 3, groupSizeMax: 15, description: "Co-create a one-page team operating agreement.", instructions: "1. 'In our best moments, what does our team do?' (10m)\n2. 'In our worst moments, what trips us up?' (10m)\n3. Draft 5-7 agreements (25m)\n4. Test willingness to call each other out (15m)", learningObjectives: "Make implicit norms explicit; create permission for accountability.", isGlobal: true },
-    { title: "Stop / start / continue", kind: "REFLECTION", durationMin: 45, groupSizeMin: 3, groupSizeMax: 20, description: "Quick close-out reflection on team behaviors heading into the next quarter.", instructions: "Each person silently writes 1-3 items per category. Round-robin share. Group commits to 1 stop, 1 start, 1 continue.", learningObjectives: "Crisp commitments; shared accountability for behaviors.", isGlobal: true },
-  ]);
-
-  // ── Retreat templates (global) ──
-  await db.insert(retreatTemplates).values({
-    name: "Leadership Working Day",
-    tagline: "One day. Five working sessions. Designed to surface real challenges, practice candor, and ship working AI prototypes by 3 PM.",
-    philosophy: LEADERSHIP_DAY_PHILOSOPHY,
-    agenda: JSON.stringify(LEADERSHIP_DAY_AGENDA),
-    intakeSchema: JSON.stringify(LEADERSHIP_DAY_INTAKE),
-    isGlobal: true,
-  });
-
   console.log("\nDone. Demo logins (all use password: password123):\n");
   console.log("  Primary advisor (cross-portfolio):");
-  console.log("    danny@sidequest.demo   — Danny Ellis, Director on all 3 orgs + coaching workspace\n");
+  console.log("    danny@sidequest.demo   — Danny Ellis, Director on all 3 orgs\n");
   console.log("  Per-company founders (single-org logins to verify isolation):");
   console.log("    riley@acme.demo        — Acme Robotics CEO (only sees Acme)");
   console.log("    maya@northstar.demo    — Northstar Grid CEO (only sees Northstar)");

@@ -13,8 +13,6 @@ import {
   MessageSquare,
   Rocket,
   Settings,
-  Sparkles,
-  Tent,
   TrendingUp,
   Users,
   Vote,
@@ -29,9 +27,9 @@ const sections: NavSection[] = [
     label: "Boardroom",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: Home },
-      { href: "/meetings", label: "Meetings & minutes", icon: Calendar },
-      { href: "/resolutions", label: "Decisions & votes", icon: Vote },
+      { href: "/meetings", label: "Board meetings", icon: Calendar },
       { href: "/reports", label: "Reports", icon: ClipboardList },
+      { href: "/resolutions", label: "Decisions & votes", icon: Vote },
       { href: "/documents", label: "Documents", icon: FileText },
       { href: "/action-items", label: "Action items", icon: CheckSquare },
       { href: "/members", label: "Members", icon: Users },
@@ -39,7 +37,7 @@ const sections: NavSection[] = [
     ],
   },
   {
-    label: "Monthly reporting",
+    label: "Company sections",
     items: [
       { href: "/financials", label: "Financials", icon: LineChart },
       { href: "/projects", label: "Key projects", icon: Rocket },
@@ -47,20 +45,6 @@ const sections: NavSection[] = [
       { href: "/team", label: "Team update", icon: Users },
       { href: "/customers", label: "Key customers", icon: Building2 },
       { href: "/sales", label: "Sales & GTM", icon: TrendingUp },
-    ],
-  },
-  {
-    label: "Coaching",
-    items: [
-      { href: "/coaching", label: "Programs", icon: Sparkles },
-      { href: "/coaching/clients", label: "Clients", icon: Users },
-    ],
-  },
-  {
-    label: "Retreats",
-    items: [
-      { href: "/retreats", label: "Sessions", icon: Tent },
-      { href: "/retreats/activities", label: "Activity library", icon: ClipboardList },
     ],
   },
   {
