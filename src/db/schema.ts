@@ -313,6 +313,9 @@ export const reports = board.table("Report", {
   boardPackDocumentId: text("boardPackDocumentId"), // set when published to board pack
   notionPageId: text("notionPageId"), // Notion page this report syncs with
   notionSyncedAt: ts("notionSyncedAt"),
+  // Block-editor document (BlockNote JSON). When present it is the source of
+  // truth; `values` is derived from it per section for board-pack/Notion compat.
+  document: text("document"),
   createdAt: ts("createdAt").notNull().defaultNow(),
   updatedAt: ts("updatedAt").notNull().defaultNow(),
 });

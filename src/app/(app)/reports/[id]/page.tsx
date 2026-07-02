@@ -6,9 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { db } from "@/lib/db";
 import { meetings, reportTemplates, reports, users } from "@/db/schema";
-import { requireMembership } from "@/lib/session";
+import { canManage, requireMembership } from "@/lib/session";
 import { formatDate } from "@/lib/utils";
-import { ReportEditor, type ReportSection } from "./report-editor";
+import { seedDocFromValues, type DocBlock } from "@/lib/report-doc";
+import type { TemplateSection } from "@/lib/report-template-defs";
+import { DocEditorLoader } from "./doc-editor-loader";
 import { publishToBoardPack } from "@/lib/actions/reports";
 import { pullReportFromNotionAction, syncReportToNotion } from "@/lib/actions/notion";
 import { notionConfigured } from "@/lib/notion-sync";
@@ -36,10 +38,10 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
   const row = rows[0];
   if (!row) notFound();
 
-  let sections: ReportSection[] = [];
+  let sections: TemplateSection[] = [];
   if (row.tmpSections) {
     try {
-      sections = JSON.parse(row.tmpSections) as ReportSection[];
+      sections = JSON.parse(row.tmpSections) as TemplateSection[];
     } catch {
       /* noop */
     }
@@ -52,40 +54,53 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
     /* noop */
   }
 
+  // Source of truth: the block document. Legacy reports (or brand-new ones)
+  // get a document seeded from the template skeleton + any per-section text.
+  let initialDocument: DocBlock[] | null = null;
+  if (row.r.document) {
+    try {
+      initialDocument = JSON.parse(row.r.document) as DocBlock[];
+    } catch {
+      /* noop */
+    }
+  }
+  if (!initialDocument || initialDocument.length === 0) {
+    initialDocument = seedDocFromValues(sections, values);
+  }
+
+  const editable = canManage(membership.role);
+
   return (
     <div className="space-y-6">
-      <div>
-        <div className="flex items-center gap-2">
-          <Badge variant={row.r.status === "PUBLISHED" ? "success" : "secondary"}>
-            {row.r.status === "PUBLISHED" ? "Published" : "Draft"}
-          </Badge>
-          {row.tmpName ? <Badge variant="outline">{row.tmpName}</Badge> : null}
-          {row.meetingId ? (
-            <Badge variant="outline">
-              <Link href={`/meetings/${row.meetingId}`}>{row.meetingTitle}</Link>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <Badge variant={row.r.status === "PUBLISHED" ? "success" : "secondary"}>
+              {row.r.status === "PUBLISHED" ? "Published" : "Draft"}
             </Badge>
-          ) : null}
+            {row.tmpName ? <Badge variant="outline">{row.tmpName}</Badge> : null}
+            {row.meetingId ? (
+              <Badge variant="outline">
+                <Link href={`/meetings/${row.meetingId}/pack`}>{row.meetingTitle}</Link>
+              </Badge>
+            ) : null}
+          </div>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">{row.r.title}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            By {row.authorName ?? row.authorEmail} · last updated {formatDate(row.r.updatedAt)}
+          </p>
         </div>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight">{row.r.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          By {row.authorName ?? row.authorEmail} · last updated {formatDate(row.r.updatedAt)}
-        </p>
+        <Button asChild>
+          <Link href={`/reports/${row.r.id}/view`}>View branded report</Link>
+        </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Editor</CardTitle>
-          <CardDescription>Fill out each section. Changes save when you press Save draft.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ReportEditor
-            reportId={row.r.id}
-            status={row.r.status}
-            sections={sections}
-            initialValues={values}
-          />
-        </CardContent>
-      </Card>
+      <DocEditorLoader
+        reportId={row.r.id}
+        sections={sections}
+        initialDocument={initialDocument}
+        editable={editable}
+      />
 
       {notionConfigured && sections.length > 0 ? (
         <Card>
