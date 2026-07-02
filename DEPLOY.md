@@ -1,10 +1,12 @@
 # Deploying Quorum to quorum.sidequeststrategies.com
 
-> **AssetCool board-reporting deployment** — to serve this app at
-> `assetcool.sidequeststrategies.com/boardreporting`, follow this guide but see
-> the [AssetCool deployment](#assetcool-deployment-boardreporting) section below
-> for the extra env vars (base path, Google SSO, branding) and the rewrite in
-> the `assetcool-retreat` repo.
+> **STACK UPDATE (July 2026):** the app now runs on **Postgres** — Supabase in
+> production, embedded PGlite locally — and supports **Supabase Auth** for
+> Google SSO. The Turso/libSQL instructions in steps 2–4 below are superseded;
+> see the [AssetCool deployment](#assetcool-deployment-boardreporting) section
+> for the current runbook. Local dev needs no database service at all:
+> `npm run db:push && npm run db:seed && npm run dev` uses PGlite under
+> `data/pglite/` with the NextAuth password demo logins.
 
 Target stack: **Vercel** (Next.js host) + **Turso** (libSQL database) + **Vercel Blob** (file storage). All three have free tiers that comfortably cover this scale; estimated cost at low usage: **$0/month**.
 
@@ -181,30 +183,52 @@ Production uses Turso + Vercel Blob, but neither side knows or cares about the o
 
 ## AssetCool deployment (/boardreporting)
 
-The board-reporting portal lives at `https://assetcool.sidequeststrategies.com/boardreporting`, proxied by the `assetcool-retreat` Vercel project (which owns the `assetcool` subdomain). Create a **second Vercel project** from this repo (e.g. `quorum-boardreporting`) with the standard env vars from step 4b **plus**:
+The board-reporting portal lives at `https://assetcool.sidequeststrategies.com/boardreporting`, proxied by the `assetcool-retreat` Vercel project (which owns the `assetcool` subdomain). It runs against the **existing todo-project Supabase project** — its Postgres for data (in a dedicated `board` schema, so todo tables are untouched) and its already-configured **Google SSO** via Supabase Auth. No Google Console changes are needed.
+
+### 1. Prepare Supabase (~5 minutes, in the todo project's dashboard)
+
+1. **Connection string** — Project Settings → Database → Connection string → **Transaction** mode (port 6543). This becomes `DATABASE_URL`.
+2. **API keys** — Project Settings → API: copy the Project URL and `anon` key.
+3. **Auth redirect** — Authentication → URL Configuration → Redirect URLs, add:
+   - `https://assetcool.sidequeststrategies.com/boardreporting/auth/callback`
+   - `https://<your-project>.vercel.app/boardreporting/auth/callback` (for testing before DNS)
+4. Google is already enabled as a provider for the todo app — nothing else to do.
+
+The `board` schema is **not** exposed through Supabase's REST API (only schemas explicitly listed under API settings are served), so the data is reachable only via the app's server-side connection.
+
+### 2. Apply the schema
+
+From your machine, with the connection string from step 1:
+
+```bash
+DATABASE_URL="postgres://...pooler.supabase.com:6543/postgres" npm run db:push
+```
+
+Creates the `board` schema and all tables. Idempotent — safe to re-run. **Do not run `npm run db:seed` against Supabase** (demo data belongs on local/demo instances; the seed refuses production URLs unless `ALLOW_PROD_SEED=1`).
+
+### 3. Vercel project
+
+Create a Vercel project from this repo (e.g. `quorum-boardreporting`) with env vars:
 
 | Name | Value | Notes |
 |---|---|---|
+| `DATABASE_URL` | Supabase pooler connection string | **Sensitive** |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://<ref>.supabase.co` | Enables Supabase Auth mode |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon key | Safe to expose; used only for auth |
 | `NEXT_PUBLIC_BASE_PATH` | `/boardreporting` | Serves every route under the prefix |
-| `NEXTAUTH_URL` | `https://assetcool.sidequeststrategies.com/boardreporting` | Must include the prefix |
-| `AUTH_GOOGLE_ID` | (Google OAuth client ID) | See "Google SSO" below — **Sensitive** |
-| `AUTH_GOOGLE_SECRET` | (Google OAuth client secret) | **Sensitive** |
-| `GOOGLE_ALLOWED_EMAILS` | `danny@sidequeststrategies.com` | Comma-separated allowlist; add AssetCool execs/directors here |
-| `GOOGLE_ALLOWED_DOMAINS` | (optional) `assetcool.com` | Allows a whole domain in one go |
-
-Branding defaults to AssetCool. For a white-label deployment for another client set `NEXT_PUBLIC_BRAND_NAME`, `NEXT_PUBLIC_BRAND_PRODUCT`, `NEXT_PUBLIC_BRAND_TAGLINE` and swap the palette in `src/app/globals.css` (see `BRAND.md`).
+| `GOOGLE_ALLOWED_EMAILS` | `danny@sidequeststrategies.com` | Comma-separated allowlist for first-time SSO sign-ins |
+| `GOOGLE_ALLOWED_DOMAINS` | (optional) `assetcool.com` | Allow a whole domain |
+| `AUTH_SECRET` | 32 random bytes, base64 | Still required (NextAuth fallback code path) — **Sensitive** |
+| `STORAGE_DRIVER` | `vercel-blob` | Plus connect a Blob store (Storage → Connect) |
+| `ANTHROPIC_API_KEY` | (optional) | Enables the `/chat` assistant — **Sensitive** |
 
 Then, in the `assetcool-retreat` repo, point the `rewrites` in `vercel.json` at this project's `*.vercel.app` production domain and redeploy it.
 
-### Google SSO setup (one-time, ~5 minutes)
+### How sign-in works
 
-1. Go to <https://console.cloud.google.com/apis/credentials> (any Google Cloud project).
-2. **Create credentials → OAuth client ID → Web application.**
-3. Authorized redirect URIs — add both:
-   - `https://assetcool.sidequeststrategies.com/boardreporting/api/auth/callback/google`
-   - `https://<your-project>.vercel.app/boardreporting/api/auth/callback/google` (for testing before DNS)
-4. Copy the client ID/secret into the Vercel env vars above and redeploy.
-5. Sign-in behavior: the "Continue with Google" button only appears when `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` are set, and only emails in `GOOGLE_ALLOWED_EMAILS` (or domains in `GOOGLE_ALLOWED_DOMAINS`) are allowed through. Everyone else gets a friendly "ask the workspace owner" error. Password login remains available for demo accounts.
+- With Supabase configured, the login page shows **Continue with Google**, which round-trips through the todo project's existing Google provider. First-time sign-ins are gated by `GOOGLE_ALLOWED_EMAILS`/`GOOGLE_ALLOWED_DOMAINS`; anyone not on the list is signed out with a friendly error. Users who already exist in the app (e.g. invited members) always get through.
+- Password signup is disabled in SSO mode — accounts are provisioned automatically on first allowed Google sign-in.
+- Locally (no Supabase env vars) the app falls back to the NextAuth password login with the seeded demo accounts.
 
 ## Operational notes
 

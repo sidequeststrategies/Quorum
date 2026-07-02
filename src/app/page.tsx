@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { auth } from "@/auth";
+import { hasActiveSession } from "@/lib/session";
 import { brand } from "@/lib/brand";
 import { BrandMark } from "@/components/brand-logo";
 import {
@@ -16,8 +16,7 @@ import {
 } from "lucide-react";
 
 export default async function HomePage() {
-  const session = await auth();
-  if (session?.user) redirect("/dashboard");
+  if (await hasActiveSession()) redirect("/dashboard");
 
   const features = [
     {

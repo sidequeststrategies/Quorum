@@ -7,32 +7,12 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { users, accounts, sessions, verificationTokens } from "@/db/schema";
+import { ssoEmailAllowed } from "@/lib/access";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
-
-// Google SSO gate. Only emails on the allowlist (or in an allowed domain) can
-// sign in with Google. Comma-separated env vars:
-//   GOOGLE_ALLOWED_EMAILS="danny@sidequeststrategies.com,ceo@assetcool.com"
-//   GOOGLE_ALLOWED_DOMAINS="assetcool.com"
-const ALLOWED_EMAILS = (process.env.GOOGLE_ALLOWED_EMAILS ?? "danny@sidequeststrategies.com")
-  .split(",")
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
-const ALLOWED_DOMAINS = (process.env.GOOGLE_ALLOWED_DOMAINS ?? "")
-  .split(",")
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
-
-function googleEmailAllowed(email: string | null | undefined): boolean {
-  if (!email) return false;
-  const lower = email.toLowerCase();
-  if (ALLOWED_EMAILS.includes(lower)) return true;
-  const domain = lower.split("@")[1];
-  return !!domain && ALLOWED_DOMAINS.includes(domain);
-}
 
 const googleConfigured = !!process.env.AUTH_GOOGLE_ID && !!process.env.AUTH_GOOGLE_SECRET;
 
@@ -86,7 +66,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async signIn({ user, account }) {
       if (account?.provider === "google") {
-        return googleEmailAllowed(user.email);
+        return ssoEmailAllowed(user.email);
       }
       return true;
     },

@@ -4,7 +4,7 @@ import { BrandMark } from "@/components/brand-logo";
 import { brand } from "@/lib/brand";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { initials } from "@/lib/utils";
-import { signOut } from "@/auth";
+import { logoutAction } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { listMyMemberships } from "@/lib/session";
 import { OrgSwitcher } from "./org-switcher";
@@ -21,10 +21,7 @@ export async function AppHeader({ userId, orgId, orgName, userName, userEmail }:
   const memberships = await listMyMemberships(userId);
   const hasMultiple = memberships.length > 1;
 
-  async function logout() {
-    "use server";
-    await signOut({ redirectTo: "/" });
-  }
+  const logout = logoutAction;
 
   return (
     <header className="flex h-14 items-center justify-between border-b bg-background px-6">

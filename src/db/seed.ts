@@ -1,111 +1,34 @@
-import { drizzle } from "drizzle-orm/sqlite-proxy";
-import { DatabaseSync, type StatementSync } from "node:sqlite";
 import bcrypt from "bcryptjs";
 import * as schema from "./schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray, like } from "drizzle-orm";
+import { drizzle as drizzlePg, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { drizzle as drizzleLite } from "drizzle-orm/pglite";
 
-const url = (process.env.DATABASE_URL ?? "file:./data/quorum.db").replace(/^file:/, "");
-const sqlite = new DatabaseSync(url);
-sqlite.exec("PRAGMA foreign_keys = ON;");
+type Db = PostgresJsDatabase<typeof schema>;
 
-// Same SQL-rewrite trick as src/lib/db.ts so seed-time joins behave correctly.
-function aliasOuterSelect(sql: string): string {
-  const head = sql.match(/^\s*select\s+(distinct\s+)?/i);
-  if (!head) return sql;
-  const headLen = head[0].length;
-  const rest = sql.slice(headLen);
-  const fromIdx = findTopLevelFrom(rest);
-  if (fromIdx === -1) return sql;
-  const items = splitTopLevel(rest.slice(0, fromIdx), ",");
-  let aliased = false;
-  const newItems = items.map((raw, i) => {
-    const item = raw.trim();
-    if (/\bas\b/i.test(item)) return raw;
-    if (item === "*" || item.endsWith(".*")) return raw;
-    aliased = true;
-    return `${raw} as "c_${i}"`;
-  });
-  if (!aliased) return sql;
-  return sql.slice(0, headLen) + newItems.join(",") + rest.slice(fromIdx);
-}
-function findTopLevelFrom(s: string): number {
-  let depth = 0, sg = false, db_ = false, bt = false, br = false;
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (sg) { if (ch === "'" && s[i-1] !== "\\") sg = false; continue; }
-    if (db_) { if (ch === '"' && s[i-1] !== "\\") db_ = false; continue; }
-    if (bt) { if (ch === "`") bt = false; continue; }
-    if (br) { if (ch === "]") br = false; continue; }
-    if (ch === "'") { sg = true; continue; }
-    if (ch === '"') { db_ = true; continue; }
-    if (ch === "`") { bt = true; continue; }
-    if (ch === "[") { br = true; continue; }
-    if (ch === "(") { depth++; continue; }
-    if (ch === ")") { depth--; continue; }
-    if (depth === 0 && (ch === "f" || ch === "F") && /^from\b/i.test(s.slice(i)) && /\s/.test(s[i-1] ?? " ")) return i;
+const dbUrl = process.env.DATABASE_URL;
+const isPg = !!dbUrl && (dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://"));
+
+let db: Db;
+let closeDb: () => Promise<void>;
+
+async function connect() {
+  if (isPg) {
+    const postgres = (await import("postgres")).default;
+    const client = postgres(dbUrl!, { prepare: false, max: 1 });
+    db = drizzlePg(client, { schema });
+    closeDb = async () => {
+      await client.end();
+    };
+  } else {
+    const { PGlite } = await import("@electric-sql/pglite");
+    const client = new PGlite(process.env.PGLITE_DIR ?? "./data/pglite");
+    db = drizzleLite(client, { schema }) as unknown as Db;
+    closeDb = async () => {
+      await client.close();
+    };
   }
-  return -1;
 }
-function splitTopLevel(s: string, sep: string): string[] {
-  const out: string[] = [];
-  let depth = 0, sg = false, db_ = false, bt = false, br = false, start = 0;
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (sg) { if (ch === "'" && s[i-1] !== "\\") sg = false; continue; }
-    if (db_) { if (ch === '"' && s[i-1] !== "\\") db_ = false; continue; }
-    if (bt) { if (ch === "`") bt = false; continue; }
-    if (br) { if (ch === "]") br = false; continue; }
-    if (ch === "'") { sg = true; continue; }
-    if (ch === '"') { db_ = true; continue; }
-    if (ch === "`") { bt = true; continue; }
-    if (ch === "[") { br = true; continue; }
-    if (ch === "(") { depth++; continue; }
-    if (ch === ")") { depth--; continue; }
-    if (depth === 0 && ch === sep) { out.push(s.slice(start, i)); start = i + 1; }
-  }
-  out.push(s.slice(start));
-  return out;
-}
-function rowToValues(stmt: StatementSync, row: Record<string, unknown>): unknown[] {
-  const cols = stmt.columns?.();
-  if (cols && cols.length === Object.keys(row).length) return cols.map((c) => row[c.name]);
-  return Object.values(row);
-}
-
-const db = drizzle(
-  async (sql, params, method) => {
-    const rewritten = aliasOuterSelect(sql);
-    const stmt = sqlite.prepare(rewritten);
-    if (method === "run") { stmt.run(...(params as never[])); return { rows: [] }; }
-    if (method === "get") {
-      const r = stmt.get(...(params as never[]));
-      if (!r) return { rows: [] };
-      return { rows: rowToValues(stmt, r as Record<string, unknown>) };
-    }
-    const rs = stmt.all(...(params as never[])) as Array<Record<string, unknown>>;
-    return { rows: rs.map((r) => rowToValues(stmt, r)) };
-  },
-  async (queries) => {
-    sqlite.exec("BEGIN");
-    try {
-      const results = queries.map(({ sql, params, method }) => {
-        const rewritten = aliasOuterSelect(sql);
-        const stmt = sqlite.prepare(rewritten);
-        if (method === "run") { stmt.run(...(params as never[])); return { rows: [] }; }
-        if (method === "get") {
-          const r = stmt.get(...(params as never[]));
-          if (!r) return { rows: [] };
-          return { rows: rowToValues(stmt, r as Record<string, unknown>) };
-        }
-        const rs = stmt.all(...(params as never[])) as Array<Record<string, unknown>>;
-        return { rows: rs.map((r) => rowToValues(stmt, r)) };
-      });
-      sqlite.exec("COMMIT");
-      return results;
-    } catch (e) { sqlite.exec("ROLLBACK"); throw e; }
-  },
-  { schema }
-);
 
 const {
   users, organizations, memberships, meetings, agendaItems, attendances,
@@ -131,9 +54,8 @@ async function main() {
   const url = process.env.DATABASE_URL ?? "";
   const looksLikeProd =
     process.env.NODE_ENV === "production" ||
-    url.startsWith("libsql://") ||
-    url.startsWith("https://") ||
-    /turso|vercel|prod/i.test(url);
+    isPg ||
+    /supabase|vercel|prod/i.test(url);
   if (looksLikeProd && process.env.ALLOW_PROD_SEED !== "1") {
     console.error(
       "Refusing to run demo seed against what looks like a production database.\n" +
@@ -143,47 +65,29 @@ async function main() {
     process.exit(2);
   }
 
+  await connect();
   console.log("Seeding…");
   const passwordHash = await bcrypt.hash("password123", 10);
 
   // ── Wipe demo data (idempotent re-seeds) ─────────────────────────────
-  sqlite.exec(`
-    DELETE FROM RiskReview;
-    DELETE FROM Risk;
-    DELETE FROM ProjectUpdate;
-    DELETE FROM ProjectMilestone;
-    DELETE FROM Project;
-    DELETE FROM TeamUpdate;
-    DELETE FROM CustomerUpdate;
-    DELETE FROM Customer;
-    DELETE FROM GtmUpdate;
-    DELETE FROM FinancialSnapshot;
-    DELETE FROM RetreatIntakeResponse;
-    DELETE FROM RetreatTemplate;
-    DELETE FROM RetreatTakeaway;
-    DELETE FROM RetreatAgendaItem;
-    DELETE FROM Retreat;
-    DELETE FROM RetreatActivity;
-    DELETE FROM CoachingSession;
-    DELETE FROM LessonAssignment;
-    DELETE FROM CoachingClient;
-    DELETE FROM CoachingLesson;
-    DELETE FROM CoachingProgram;
-    DELETE FROM FinancialScenario;
-    DELETE FROM FinancialPlan;
-    DELETE FROM Report;
-    DELETE FROM ReportTemplate;
-    DELETE FROM Vote;
-    DELETE FROM Attendance;
-    DELETE FROM AgendaItem;
-    DELETE FROM ActionItem;
-    DELETE FROM Document;
-    DELETE FROM Resolution;
-    DELETE FROM Meeting;
-    DELETE FROM Membership;
-    DELETE FROM "User" WHERE email LIKE '%.demo';
-    DELETE FROM Organization WHERE slug IN ('acme-robotics', 'northstar-grid', 'harbor-logics');
-  `);
+  // Children before parents; FKs cascade the rest.
+  const wipeAll = [
+    riskReviews, risks, projectUpdates, projectMilestones, projects,
+    teamUpdates, customerUpdates, customers, gtmUpdates, financialSnapshots,
+    schema.retreatIntakeResponses, retreatTemplates, schema.retreatTakeaways,
+    retreatAgendaItems, retreats, retreatActivities,
+    coachingSessions, lessonAssignments, coachingClients, coachingLessons, coachingPrograms,
+    financialScenarios, financialPlans, reports, reportTemplates,
+    votes, attendances, agendaItems, actionItems, schema.documents,
+    resolutions, meetings, memberships,
+  ];
+  for (const table of wipeAll) {
+    await db.delete(table);
+  }
+  await db.delete(users).where(like(users.email, "%.demo"));
+  await db
+    .delete(organizations)
+    .where(inArray(organizations.slug, ["acme-robotics", "northstar-grid", "harbor-logics"]));
 
   // ── Users ─────────────────────────────────────────────────────────────
   // The advisor (your primary login) — has memberships across all 3 orgs
@@ -716,11 +620,11 @@ async function main() {
   console.log("  Other team logins (also single-org):");
   console.log("    sam@acme.demo, drew@acme.demo, owen@northstar.demo, fei@harbor.demo, etc.");
 
-  sqlite.close();
+  await closeDb();
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error(e);
-  sqlite.close();
+  await closeDb?.();
   process.exit(1);
 });

@@ -6,7 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { signIn, googleConfigured } from "@/auth";
+import { getRequestOrigin, getSupabaseServer, supabaseConfigured } from "@/lib/supabase";
 import { brand } from "@/lib/brand";
+
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export default function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   return (
@@ -17,13 +20,15 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ er
       </CardHeader>
       <CardContent>
         <LoginForm searchParamsPromise={searchParams} />
-        <p className="mt-6 text-sm text-muted-foreground">
-          New here?{" "}
-          <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
-            Create an account
-          </Link>
-          .
-        </p>
+        {!supabaseConfigured ? (
+          <p className="mt-6 text-sm text-muted-foreground">
+            New here?{" "}
+            <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
+              Create an account
+            </Link>
+            .
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -52,15 +57,22 @@ function GoogleIcon() {
 async function LoginForm({ searchParamsPromise }: { searchParamsPromise: Promise<{ error?: string }> }) {
   const sp = await searchParamsPromise;
   const error = sp.error;
+  const showGoogle = supabaseConfigured || googleConfigured;
 
   async function loginAction(formData: FormData) {
     "use server";
+    const email = String(formData.get("email") ?? "");
+    const password = String(formData.get("password") ?? "");
+
+    if (supabaseConfigured) {
+      const supabase = await getSupabaseServer();
+      const { error: sbError } = await supabase.auth.signInWithPassword({ email, password });
+      if (sbError) redirect("/login?error=invalid");
+      redirect("/dashboard");
+    }
+
     try {
-      await signIn("credentials", {
-        email: formData.get("email"),
-        password: formData.get("password"),
-        redirectTo: "/dashboard",
-      });
+      await signIn("credentials", { email, password, redirectTo: "/dashboard" });
     } catch (e) {
       if ((e as Error).message?.includes("NEXT_REDIRECT")) throw e;
       redirect("/login?error=invalid");
@@ -69,12 +81,22 @@ async function LoginForm({ searchParamsPromise }: { searchParamsPromise: Promise
 
   async function googleAction() {
     "use server";
+    if (supabaseConfigured) {
+      const supabase = await getSupabaseServer();
+      const origin = await getRequestOrigin();
+      const { data, error: sbError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: `${origin}${BASE_PATH}/auth/callback?next=/dashboard` },
+      });
+      if (sbError || !data?.url) redirect("/login?error=oauth");
+      redirect(data.url);
+    }
     await signIn("google", { redirectTo: "/dashboard" });
   }
 
   return (
     <div className="space-y-5">
-      {googleConfigured ? (
+      {showGoogle ? (
         <>
           <form action={googleAction}>
             <Button type="submit" variant="outline" className="w-full">
@@ -100,6 +122,8 @@ async function LoginForm({ searchParamsPromise }: { searchParamsPromise: Promise
         </div>
         {error === "invalid" ? (
           <p className="text-sm text-destructive">Invalid email or password. Please try again.</p>
+        ) : error === "oauth" ? (
+          <p className="text-sm text-destructive">Google sign-in didn&rsquo;t complete. Please try again.</p>
         ) : error ? (
           <p className="text-sm text-destructive">
             Sign-in was not allowed. Google sign-in is limited to approved board members — ask the workspace
