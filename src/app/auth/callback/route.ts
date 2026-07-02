@@ -13,13 +13,15 @@ export async function GET(request: Request) {
   const next = searchParams.get("next") ?? "/dashboard";
 
   // Behind the Vercel rewrite the request URL's origin is the deployment
-  // host; prefer the forwarded host so redirects stay on the public domain.
+  // host. APP_ORIGIN pins the public domain explicitly; otherwise fall back
+  // to the forwarded host.
   const forwardedHost = request.headers.get("x-forwarded-host");
   const forwardedProto = request.headers.get("x-forwarded-proto") ?? "https";
   const publicOrigin =
-    process.env.NODE_ENV === "development" || !forwardedHost
+    process.env.APP_ORIGIN?.replace(/\/+$/, "") ??
+    (process.env.NODE_ENV === "development" || !forwardedHost
       ? origin
-      : `${forwardedProto.split(",")[0]}://${forwardedHost.split(",")[0]}`;
+      : `${forwardedProto.split(",")[0]}://${forwardedHost.split(",")[0]}`);
 
   if (code) {
     const supabase = await getSupabaseServer();

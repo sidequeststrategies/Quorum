@@ -216,6 +216,7 @@ Create a Vercel project from this repo (e.g. `quorum-boardreporting`) with env v
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://<ref>.supabase.co` | Enables Supabase Auth mode |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_…` key | Safe to expose; used only for auth (legacy `anon` JWT also accepted) |
 | `NEXT_PUBLIC_BASE_PATH` | `/boardreporting` | Serves every route under the prefix |
+| `APP_ORIGIN` | `https://assetcool.sidequeststrategies.com` | Pins the public domain for OAuth redirects behind the proxy — without it, forwarded headers can point the callback at the internal `*.vercel.app` host and the sign-in fails |
 | `GOOGLE_ALLOWED_EMAILS` | `danny@sidequeststrategies.com` | Comma-separated allowlist for first-time SSO sign-ins |
 | `GOOGLE_ALLOWED_DOMAINS` | (optional) `assetcool.com` | Allow a whole domain |
 | `AUTH_SECRET` | 32 random bytes, base64 | Still required (NextAuth fallback code path) — **Sensitive** |
