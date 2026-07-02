@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
 import { memberships, organizations } from "@/db/schema";
 import { requireUser } from "@/lib/session";
 import { slugify } from "@/lib/utils";
-import { signOut } from "@/auth";
+import { logoutAction } from "@/lib/actions/auth";
 
 export default async function OnboardingPage() {
   const user = await requireUser();
@@ -40,10 +40,6 @@ export default async function OnboardingPage() {
     redirect("/dashboard");
   }
 
-  async function logoutAction() {
-    "use server";
-    await signOut({ redirectTo: "/" });
-  }
 
   return (
     <div className="container flex min-h-screen items-center justify-center py-12">

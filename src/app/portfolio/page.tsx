@@ -10,7 +10,7 @@ import { meetings, resolutions } from "@/db/schema";
 import { listMyMemberships, requireUser } from "@/lib/session";
 import { switchOrganization } from "@/lib/actions/portfolio";
 import { ROLE_LABELS } from "@/lib/enums";
-import { signOut } from "@/auth";
+import { logoutAction } from "@/lib/actions/auth";
 import { initials } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
@@ -57,10 +57,6 @@ export default async function PortfolioPage() {
     openResolutions: openByOrg.get(m.organizationId) ?? 0,
   }));
 
-  async function logout() {
-    "use server";
-    await signOut({ redirectTo: "/" });
-  }
 
   return (
     <div className="min-h-screen bg-muted/20">
@@ -79,7 +75,7 @@ export default async function PortfolioPage() {
             <Avatar>
               <AvatarFallback>{initials(user.name ?? user.email)}</AvatarFallback>
             </Avatar>
-            <form action={logout}>
+            <form action={logoutAction}>
               <Button type="submit" variant="ghost" size="sm">
                 Sign out
               </Button>

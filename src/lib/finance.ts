@@ -131,6 +131,49 @@ export function fmtUSD(n: number, opts?: { compact?: boolean }) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
+// Plain-English summary lines from a snapshot series (latest month vs prior).
+// Shared by the financials page and the board pack so they never disagree.
+export function financialSummaryLines(
+  snapshots: {
+    cash: number;
+    arr: number;
+    revenue: number;
+    burn: number;
+    headcount: number;
+    grossMargin: number;
+  }[]
+): string[] {
+  const latest = snapshots[snapshots.length - 1];
+  const prev = snapshots.length > 1 ? snapshots[snapshots.length - 2] : null;
+  if (!latest) return [];
+
+  const lines: string[] = [];
+  const runway = latest.burn > 0 ? Math.floor(latest.cash / latest.burn) : null;
+  lines.push(
+    runway != null
+      ? `Runway: ~${runway} months at the current net burn of ${fmtUSD(latest.burn, { compact: true })}/mo.`
+      : `Cash-flow positive this period — no runway constraint at current burn.`
+  );
+  if (prev) {
+    if (prev.revenue > 0) {
+      const g = ((latest.revenue - prev.revenue) / prev.revenue) * 100;
+      lines.push(
+        `Revenue ${g >= 0 ? "grew" : "declined"} ${Math.abs(g).toFixed(1)}% month-over-month to ${fmtUSD(latest.revenue, { compact: true })}.`
+      );
+    }
+    if (prev.arr > 0 && latest.arr !== prev.arr) {
+      const d = latest.arr - prev.arr;
+      lines.push(
+        `ARR ${d >= 0 ? "added" : "lost"} ${fmtUSD(Math.abs(d), { compact: true })} (now ${fmtUSD(latest.arr, { compact: true })}).`
+      );
+    }
+    const hcDelta = latest.headcount - prev.headcount;
+    if (hcDelta !== 0) lines.push(`Headcount ${hcDelta > 0 ? "up" : "down"} ${Math.abs(hcDelta)} to ${latest.headcount}.`);
+  }
+  if (latest.grossMargin > 0) lines.push(`Gross margin at ${latest.grossMargin}%.`);
+  return lines;
+}
+
 export const DEFAULT_ASSUMPTIONS: ScenarioAssumptions = {
   startingMRR: 50000,
   monthlyGrowthPct: 8,

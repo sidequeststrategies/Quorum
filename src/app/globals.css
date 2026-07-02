@@ -2,50 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  AssetCool brand theme — see BRAND.md.
+  Core palette: navy #1A3569, deep navy #0F1F3D, teal #3FABBD,
+  bright teal #4FC1D4, mid blue #285FAF, surface #EEF3F9.
+*/
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
+    --foreground: 215 28% 17%; /* ink #1F2937 */
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 215 28% 17%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 222 47% 11%;
+    --popover-foreground: 215 28% 17%;
+    --primary: 220 60% 26%; /* navy #1A3569 */
     --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
+    --secondary: 213 48% 95%; /* surface #EEF3F9 */
+    --secondary-foreground: 220 60% 26%;
+    --muted: 213 48% 95%;
     --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
+    --accent: 189 50% 92%; /* soft teal wash */
+    --accent-foreground: 219 61% 15%; /* deep navy */
+    --destructive: 0 72% 45%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 222 47% 11%;
-    --radius: 0.5rem;
+    --border: 215 29% 87%; /* rule #D5DDE8 */
+    --input: 215 29% 87%;
+    --ring: 189 50% 49%; /* teal #3FABBD */
+    --radius: 0.75rem;
+
+    /* Brand accents for charts and highlights */
+    --brand-navy: 220 60% 26%;
+    --brand-navy-deep: 219 61% 15%;
+    --brand-teal: 189 50% 49%;
+    --brand-teal-bright: 189 61% 57%;
+    --brand-blue: 216 63% 42%;
   }
 
   .dark {
-    --background: 222 47% 6%;
+    --background: 219 61% 8%;
     --foreground: 210 40% 98%;
-    --card: 222 47% 8%;
+    --card: 219 55% 11%;
     --card-foreground: 210 40% 98%;
-    --popover: 222 47% 8%;
+    --popover: 219 55% 11%;
     --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 217 33% 17%;
+    --primary: 189 61% 57%; /* bright teal pops on deep navy */
+    --primary-foreground: 219 61% 10%;
+    --secondary: 219 45% 16%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 17%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
+    --muted: 219 45% 16%;
+    --muted-foreground: 214 25% 68%;
+    --accent: 219 45% 18%;
+    --accent-foreground: 189 61% 70%;
+    --destructive: 0 63% 40%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 213 27% 84%;
+    --border: 219 40% 20%;
+    --input: 219 40% 20%;
+    --ring: 189 61% 57%;
   }
 }
 
@@ -55,6 +67,41 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer utilities {
+  /* Draw-in animation for report line charts */
+  .chart-line-animate {
+    stroke-dasharray: 2000;
+    stroke-dashoffset: 2000;
+    animation: chart-draw 1.4s ease-out forwards;
+  }
+  @keyframes chart-draw {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  /* Grow-up animation for bar charts */
+  .chart-bar-animate {
+    transform-origin: bottom;
+    animation: chart-grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+  @keyframes chart-grow {
+    from {
+      transform: scaleY(0);
+    }
+    to {
+      transform: scaleY(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chart-line-animate,
+    .chart-bar-animate {
+      animation: none;
+      stroke-dashoffset: 0;
+    }
   }
 }

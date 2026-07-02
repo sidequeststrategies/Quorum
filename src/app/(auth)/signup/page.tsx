@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { db } from "@/lib/db";
 import { memberships, organizations, users } from "@/db/schema";
 import { signIn } from "@/auth";
+import { supabaseConfigured } from "@/lib/supabase";
 import { slugify } from "@/lib/utils";
 
 const signupSchema = z.object({
@@ -20,6 +21,9 @@ const signupSchema = z.object({
 });
 
 export default function SignupPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+  // On SSO deployments accounts are provisioned automatically on first
+  // Google sign-in (allowlist-gated) — password signup stays off.
+  if (supabaseConfigured) redirect("/login");
   return (
     <Card className="w-full max-w-md">
       <CardHeader>

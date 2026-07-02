@@ -1,25 +1,16 @@
-// Apply every .sql file under drizzle/ to the database in lexical order.
-// Used in place of drizzle-kit push because drizzle-kit's runtime relies on
-// better-sqlite3, which has no win32-arm64 prebuilt.
+// Apply every .sql file under drizzle/pg/ to the database in lexical order.
 //
 // Detects the backend from DATABASE_URL:
-//   - file:... (or no scheme)         → node:sqlite (local)
-//   - libsql:// / https:// / http://  → @libsql/client/web (Turso, prod)
+//   - postgres:// / postgresql://  → postgres-js (Supabase, prod)
+//   - unset / anything else        → PGlite under ./data/pglite (local dev)
 //
-// Both code paths share the same statement-splitter and the same idempotent-
-// error tolerance.
+// Idempotent: "already exists" errors are tolerated so re-runs are safe.
 
 import fs from "node:fs";
 import path from "node:path";
 
-type SqlExec = (stmt: string) => Promise<void>;
-
 function isIdempotentError(msg: string): boolean {
-  return (
-    msg.includes("already exists") ||
-    msg.includes("duplicate column name") ||
-    msg.includes("table already exists")
-  );
+  return /already exists|duplicate/i.test(msg);
 }
 
 function extractStatements(file: string): string[] {
@@ -31,61 +22,64 @@ function extractStatements(file: string): string[] {
 }
 
 async function main() {
-  const url = process.env.DATABASE_URL ?? "file:./data/quorum.db";
-  const lower = url.toLowerCase();
-  const isLibsql =
-    lower.startsWith("libsql://") || lower.startsWith("https://") || lower.startsWith("http://");
+  const url = process.env.DATABASE_URL;
+  const isPg = !!url && (url.startsWith("postgres://") || url.startsWith("postgresql://"));
 
-  let exec: SqlExec;
+  let exec: (stmt: string) => Promise<void>;
   let close: () => Promise<void>;
 
-  if (isLibsql) {
-    const { createClient } = await import("@libsql/client/web");
-    const client = createClient({ url, authToken: process.env.DATABASE_AUTH_TOKEN });
+  if (isPg) {
+    const postgres = (await import("postgres")).default;
+    const client = postgres(url!, { prepare: false, max: 1 });
     exec = async (stmt) => {
-      await client.execute(stmt);
+      await client.unsafe(stmt);
     };
     close = async () => {
-      // libsql HTTP client doesn't need explicit close
+      await client.end();
     };
-    console.log(`Applying migrations to libsql at ${url} ...`);
+    console.log("Applying migrations to Postgres…");
   } else {
-    const filename = url.replace(/^file:/, "");
-    fs.mkdirSync(path.dirname(filename), { recursive: true });
-    const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(filename);
-    db.exec("PRAGMA foreign_keys = ON;");
+    const { PGlite } = await import("@electric-sql/pglite");
+    const client = new PGlite(process.env.PGLITE_DIR ?? "./data/pglite");
     exec = async (stmt) => {
-      db.exec(stmt);
+      await client.exec(stmt);
     };
     close = async () => {
-      db.close();
+      await client.close();
     };
-    console.log(`Applying migrations to ${filename} ...`);
+    console.log("Applying migrations to local PGlite…");
   }
 
-  const migrationsDir = path.join(process.cwd(), "drizzle");
+  const dir = path.join(process.cwd(), "drizzle", "pg");
   const files = fs
-    .readdirSync(migrationsDir)
+    .readdirSync(dir)
     .filter((f) => f.endsWith(".sql"))
     .sort();
 
   for (const file of files) {
-    for (const stmt of extractStatements(path.join(migrationsDir, file))) {
+    const statements = extractStatements(path.join(dir, file));
+    let applied = 0;
+    let skipped = 0;
+    for (const stmt of statements) {
       try {
         await exec(stmt);
+        applied++;
       } catch (e) {
-        const msg = String(e);
-        if (isIdempotentError(msg)) continue;
-        console.error(`Failed in ${file}:`, msg);
-        throw e;
+        const msg = (e as Error).message ?? String(e);
+        if (isIdempotentError(msg)) {
+          skipped++;
+          continue;
+        }
+        console.error(`\n✗ ${file}:\n${stmt.slice(0, 200)}\n→ ${msg}`);
+        await close();
+        process.exit(1);
       }
     }
-    console.log(`  ✓ ${file}`);
+    console.log(`  ✓ ${file} (${applied} applied${skipped ? `, ${skipped} already present` : ""})`);
   }
 
-  await close();
   console.log("Done.");
+  await close();
 }
 
 main().catch((e) => {

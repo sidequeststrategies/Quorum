@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { Briefcase, Vote } from "lucide-react";
+import { Briefcase } from "lucide-react";
+import { BrandMark } from "@/components/brand-logo";
+import { brand } from "@/lib/brand";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { initials } from "@/lib/utils";
-import { signOut } from "@/auth";
+import { logoutAction } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { listMyMemberships } from "@/lib/session";
 import { OrgSwitcher } from "./org-switcher";
@@ -19,19 +21,14 @@ export async function AppHeader({ userId, orgId, orgName, userName, userEmail }:
   const memberships = await listMyMemberships(userId);
   const hasMultiple = memberships.length > 1;
 
-  async function logout() {
-    "use server";
-    await signOut({ redirectTo: "/" });
-  }
+  const logout = logoutAction;
 
   return (
     <header className="flex h-14 items-center justify-between border-b bg-background px-6">
       <div className="flex items-center gap-3">
         <Link href="/dashboard" className="flex items-center gap-2 font-semibold">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Vote className="h-3.5 w-3.5" />
-          </div>
-          <span>Quorum</span>
+          <BrandMark />
+          <span>{brand.name}</span>
         </Link>
         <span className="text-muted-foreground">/</span>
         {hasMultiple ? (

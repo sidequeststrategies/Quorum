@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/db";
 import { financialDocuments, financialPlans, financialScenarios, financialSnapshots } from "@/db/schema";
 import { canManage, requireMembership } from "@/lib/session";
-import { fmtUSD } from "@/lib/finance";
+import { financialSummaryLines, fmtUSD } from "@/lib/finance";
 import { formatDateOnly } from "@/lib/utils";
 import { CashChart } from "@/components/cash-chart";
 import { deleteSnapshot, deleteFinancialDocument } from "@/lib/actions/financials-data";
@@ -71,10 +71,16 @@ export default async function FinancialsPage() {
                 Add monthly snapshot
               </Link>
             </Button>
-            <Button asChild>
+            <Button asChild variant="outline">
               <Link href="/financials/new">
                 <LineChart className="mr-1 h-4 w-4" />
                 New scenario plan
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href="/financials/import">
+                <Upload className="mr-1 h-4 w-4" />
+                Import from Excel
               </Link>
             </Button>
           </div>
@@ -91,6 +97,9 @@ export default async function FinancialsPage() {
         </div>
       ) : null}
 
+      {/* Auto-computed report summary */}
+      {latest ? <AutoSummary snapshots={snapshots} /> : null}
+
       {/* Snapshots time-series chart */}
       {snapshots.length >= 2 ? (
         <Card>
@@ -101,15 +110,15 @@ export default async function FinancialsPage() {
           <CardContent className="space-y-6">
             <div>
               <h4 className="mb-1 text-sm font-medium">Cash on hand</h4>
-              <CashChart curves={[{ name: "Cash", color: "#0ea5e9", values: cashCurve }]} height={180} />
+              <CashChart curves={[{ name: "Cash", color: "#3FABBD", values: cashCurve }]} height={180} />
             </div>
             <div>
               <h4 className="mb-1 text-sm font-medium">ARR</h4>
-              <CashChart curves={[{ name: "ARR", color: "#10b981", values: arrCurve }]} height={180} />
+              <CashChart curves={[{ name: "ARR", color: "#285FAF", values: arrCurve }]} height={180} />
             </div>
             <div>
               <h4 className="mb-1 text-sm font-medium">Headcount</h4>
-              <CashChart curves={[{ name: "Headcount", color: "#a855f7", values: headcountCurve }]} height={140} />
+              <CashChart curves={[{ name: "Headcount", color: "#1A3569", values: headcountCurve }]} height={140} />
             </div>
             <div className="text-xs text-muted-foreground">
               Periods: {periodLabels[0]} → {periodLabels[periodLabels.length - 1]}
@@ -260,6 +269,26 @@ export default async function FinancialsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// Plain-English summary a director can read in ten seconds — computed, so
+// it's always consistent with the numbers above it.
+function AutoSummary({ snapshots }: { snapshots: (typeof financialSnapshots.$inferSelect)[] }) {
+  const lines = financialSummaryLines(snapshots);
+  if (lines.length === 0) return null;
+
+  return (
+    <Card className="border-l-4 border-l-brand-teal">
+      <CardContent className="p-4">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Report summary</p>
+        <ul className="mt-1.5 space-y-0.5 text-sm">
+          {lines.map((l, i) => (
+            <li key={i}>{l}</li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }
 

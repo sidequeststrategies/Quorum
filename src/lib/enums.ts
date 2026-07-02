@@ -69,6 +69,64 @@ export const ACTIVITY_KIND_LABELS: Record<string, string> = {
   REFLECTION: "Reflection",
 };
 
+// Risk register
+export const RISK_CATEGORIES = ["STRATEGIC", "FINANCIAL", "OPERATIONAL", "PEOPLE", "TECHNICAL", "LEGAL", "MARKET"] as const;
+export type RiskCategory = (typeof RISK_CATEGORIES)[number];
+export const RISK_CATEGORY_LABELS: Record<string, string> = {
+  STRATEGIC: "Strategic",
+  FINANCIAL: "Financial",
+  OPERATIONAL: "Operational",
+  PEOPLE: "People",
+  TECHNICAL: "Technical",
+  LEGAL: "Legal & compliance",
+  MARKET: "Market",
+};
+
+export const RISK_STATUSES = ["OPEN", "MITIGATING", "ACCEPTED", "CLOSED"] as const;
+export type RiskStatus = (typeof RISK_STATUSES)[number];
+export const RISK_STATUS_LABELS: Record<string, string> = {
+  OPEN: "Open",
+  MITIGATING: "Mitigating",
+  ACCEPTED: "Accepted",
+  CLOSED: "Closed",
+};
+
+// Projects / initiatives
+export const PROJECT_STATUSES = ["ON_TRACK", "AT_RISK", "OFF_TRACK", "PAUSED", "COMPLETED"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+export const PROJECT_STATUS_LABELS: Record<string, string> = {
+  ON_TRACK: "On track",
+  AT_RISK: "At risk",
+  OFF_TRACK: "Off track",
+  PAUSED: "Paused",
+  COMPLETED: "Completed",
+};
+
+export const MILESTONE_STATUSES = ["PLANNED", "IN_PROGRESS", "DONE", "SLIPPED"] as const;
+export const MILESTONE_STATUS_LABELS: Record<string, string> = {
+  PLANNED: "Planned",
+  IN_PROGRESS: "In progress",
+  DONE: "Done",
+  SLIPPED: "Slipped",
+};
+
+// Customers
+export const CUSTOMER_STATUSES = ["PROSPECT", "PILOT", "ACTIVE", "AT_RISK", "CHURNED"] as const;
+export const CUSTOMER_STATUS_LABELS: Record<string, string> = {
+  PROSPECT: "Prospect",
+  PILOT: "Pilot",
+  ACTIVE: "Active",
+  AT_RISK: "At risk",
+  CHURNED: "Churned",
+};
+
+export const CUSTOMER_HEALTHS = ["GREEN", "AMBER", "RED"] as const;
+export const CUSTOMER_HEALTH_LABELS: Record<string, string> = {
+  GREEN: "Healthy",
+  AMBER: "Watch",
+  RED: "At risk",
+};
+
 export const ROLE_LABELS: Record<Role, string> = {
   OWNER: "Owner",
   DIRECTOR: "Director",

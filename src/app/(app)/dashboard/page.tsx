@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Calendar, CheckSquare, FileText, Vote } from "lucide-react";
+import { Calendar, CheckCircle2, CheckSquare, Circle, Vote } from "lucide-react";
 import { and, asc, count, desc, eq, gte, inArray, ne } from "drizzle-orm";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,8 @@ import {
   votes,
 } from "@/db/schema";
 import { requireMembership } from "@/lib/session";
-import { formatDate, formatDateOnly } from "@/lib/utils";
+import { cycleChecklist, getBoardPackData } from "@/lib/board-pack";
+import { formatDate, formatDateOnly, formatPeriod } from "@/lib/utils";
 import { MEETING_STATUS_LABELS } from "@/lib/enums";
 
 export default async function DashboardPage() {
@@ -99,6 +100,12 @@ export default async function DashboardPage() {
     agendaCount: agendaByMtg.get(m.id) ?? 0,
     attendanceCount: attendanceByMtg.get(m.id) ?? 0,
   }));
+
+  // Monthly reporting cycle: what's done vs. missing for the current period.
+  const packData = await getBoardPackData(orgId, now);
+  const checklist = cycleChecklist(packData);
+  const doneCount = checklist.filter((c) => c.done).length;
+  const nextMeeting = upcoming[0];
   const openWithCounts = openResolutions.map((r) => ({
     ...r,
     voteCount: votesByRes.get(r.id) ?? 0,
@@ -115,6 +122,41 @@ export default async function DashboardPage() {
           <Link href="/meetings/new">Schedule meeting</Link>
         </Button>
       </div>
+
+      <Card className="border-l-4 border-l-brand-teal">
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle>Reporting cycle — {formatPeriod(now)}</CardTitle>
+            <CardDescription>
+              {doneCount}/{checklist.length} sections ready
+              {nextMeeting ? ` · next meeting ${formatDateOnly(nextMeeting.scheduledAt)}` : ""}
+            </CardDescription>
+          </div>
+          {nextMeeting ? (
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/meetings/${nextMeeting.id}/pack`}>Preview board pack</Link>
+            </Button>
+          ) : null}
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {checklist.map((c) => (
+              <Link
+                key={c.key}
+                href={c.href}
+                className="flex items-center gap-2 rounded-md border p-2.5 text-sm hover:bg-accent"
+              >
+                {c.done ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                ) : (
+                  <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+                <span className={c.done ? "" : "text-muted-foreground"}>{c.label}</span>
+              </Link>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Members" value={memberCount} icon={<UsersIcon />} href="/members" />

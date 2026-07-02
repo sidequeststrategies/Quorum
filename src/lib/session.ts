@@ -4,7 +4,9 @@ import { cookies } from "next/headers";
 import { and, asc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { memberships, organizations } from "@/db/schema";
+import { memberships, organizations, users } from "@/db/schema";
+import { getSupabaseServer, supabaseConfigured } from "@/lib/supabase";
+import { ssoEmailAllowed } from "@/lib/access";
 import type { Role } from "@/lib/enums";
 
 export type SessionUser = { id: string; email: string; name?: string | null };
@@ -14,7 +16,54 @@ const ACTIVE_ORG_COOKIE = "quorum_active_org";
 // React's cache() dedupes calls within a single render request. AppHeader,
 // AppNav, and the page body all need the same user + membership data — without
 // this they each issue their own DB query for identical data.
+//
+// Two auth modes:
+//   - Supabase configured → the Supabase Auth session (Google SSO) is the
+//     source of truth. On first sign-in an app user row is provisioned,
+//     gated by the SSO allowlist; already-provisioned users (e.g. invited
+//     members) always get through.
+//   - Otherwise → NextAuth credentials (local dev / demo instances).
+// Cheap "is anyone signed in" check for public pages (no provisioning).
+export const hasActiveSession = cache(async (): Promise<boolean> => {
+  if (supabaseConfigured) {
+    const supabase = await getSupabaseServer();
+    const { data } = await supabase.auth.getUser();
+    return !!data.user;
+  }
+  const session = await auth();
+  return !!session?.user;
+});
+
 export const requireUser = cache(async (): Promise<SessionUser> => {
+  if (supabaseConfigured) {
+    const supabase = await getSupabaseServer();
+    const { data } = await supabase.auth.getUser();
+    const sUser = data.user;
+    if (!sUser?.email) redirect("/login");
+    const email = sUser.email.toLowerCase();
+
+    const found = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    let user = found[0];
+    if (!user) {
+      if (!ssoEmailAllowed(email)) {
+        await supabase.auth.signOut();
+        redirect("/login?error=denied");
+      }
+      const meta = (sUser.user_metadata ?? {}) as { full_name?: string; name?: string; avatar_url?: string };
+      const inserted = await db
+        .insert(users)
+        .values({
+          email,
+          name: meta.full_name ?? meta.name ?? null,
+          image: meta.avatar_url ?? null,
+          emailVerified: new Date(),
+        })
+        .returning();
+      user = inserted[0];
+    }
+    return { id: user.id, email: user.email, name: user.name };
+  }
+
   const session = await auth();
   const id = (session?.user as { id?: string } | undefined)?.id;
   const email = session?.user?.email;
@@ -74,6 +123,17 @@ export const listMyMemberships = cache(async (userId: string) => {
     .where(eq(memberships.userId, userId))
     .orderBy(asc(organizations.name));
   return rows.map((r) => ({ ...r.m, organization: r.o }));
+});
+
+// Members of an org, for owner/presenter dropdowns.
+export const listOrgMembers = cache(async (organizationId: string) => {
+  const rows = await db
+    .select({ id: users.id, name: users.name, email: users.email, role: memberships.role })
+    .from(memberships)
+    .innerJoin(users, eq(memberships.userId, users.id))
+    .where(eq(memberships.organizationId, organizationId))
+    .orderBy(asc(users.name));
+  return rows;
 });
 
 // Internal helpers used by the action in /lib/actions/portfolio.ts
