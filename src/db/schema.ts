@@ -589,7 +589,240 @@ export const retreatTakeaways = sqliteTable("RetreatTakeaway", {
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(now()),
 });
 
+// -------- Risk register --------
+
+// Persistent register: risks stay on the books until CLOSED, carrying over
+// meeting to meeting. Each board review appends a RiskReview row so the
+// board sees the trajectory (likelihood/impact over time), not just the
+// current state.
+// category: STRATEGIC | FINANCIAL | OPERATIONAL | PEOPLE | TECHNICAL | LEGAL | MARKET
+// status: OPEN | MITIGATING | ACCEPTED | CLOSED
+export const risks = sqliteTable(
+  "Risk",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    category: text("category").notNull().default("OPERATIONAL"),
+    likelihood: integer("likelihood").notNull().default(3), // 1-5
+    impact: integer("impact").notNull().default(3),         // 1-5
+    status: text("status").notNull().default("OPEN"),
+    ownerId: text("ownerId").references(() => users.id),
+    mitigation: text("mitigation"),
+    closedAt: integer("closedAt", { mode: "timestamp" }),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(now()),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(now()),
+  },
+  (t) => ({ orgStatus: index("Risk_organizationId_status_idx").on(t.organizationId, t.status) })
+);
+
+export const riskReviews = sqliteTable(
+  "RiskReview",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    riskId: text("riskId").notNull().references(() => risks.id, { onDelete: "cascade" }),
+    meetingId: text("meetingId").references(() => meetings.id, { onDelete: "set null" }),
+    likelihood: integer("likelihood").notNull(),
+    impact: integer("impact").notNull(),
+    status: text("status").notNull(),
+    note: text("note"),
+    reviewedById: text("reviewedById").notNull().references(() => users.id),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(now()),
+  },
+  (t) => ({ riskCreated: index("RiskReview_riskId_createdAt_idx").on(t.riskId, t.createdAt) })
+);
+
+// -------- Key projects / initiatives --------
+
+// status: ON_TRACK | AT_RISK | OFF_TRACK | PAUSED | COMPLETED
+export const projects = sqliteTable(
+  "Project",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    summary: text("summary"),
+    status: text("status").notNull().default("ON_TRACK"),
+    ownerId: text("ownerId").references(() => users.id),
+    startDate: integer("startDate", { mode: "timestamp" }),
+    targetDate: integer("targetDate", { mode: "timestamp" }),
+    completedAt: integer("completedAt", { mode: "timestamp" }),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(now()),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(now()),
+  },
+  (t) => ({ orgStatus: index("Project_organizationId_status_idx").on(t.organizationId, t.status) })
+);
+
+// status: PLANNED | IN_PROGRESS | DONE | SLIPPED
+export const projectMilestones = sqliteTable(
+  "ProjectMilestone",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    projectId: text("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+    order: integer("order").notNull().default(0),
+    title: text("title").notNull(),
+    dueDate: integer("dueDate", { mode: "timestamp" }),
+    status: text("status").notNull().default("PLANNED"),
+    completedAt: integer("completedAt", { mode: "timestamp" }),
+  },
+  (t) => ({ projectOrder: index("ProjectMilestone_projectId_order_idx").on(t.projectId, t.order) })
+);
+
+// One written update per project per reporting period (the board write-up).
+export const projectUpdates = sqliteTable(
+  "ProjectUpdate",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    projectId: text("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+    period: integer("period", { mode: "timestamp" }).notNull(), // first day of month
+    headline: text("headline").notNull(),
+    body: text("body").notNull().default(""),
+    status: text("status").notNull().default("ON_TRACK"), // project status at time of writing
+    authorId: text("authorId").notNull().references(() => users.id),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(now()),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(now()),
+  },
+  (t) => ({
+    projectPeriod: uniqueIndex("ProjectUpdate_projectId_period_key").on(t.projectId, t.period),
+  })
+);
+
+// -------- Periodic board updates: team / customers / sales & GTM --------
+
+export const teamUpdates = sqliteTable(
+  "TeamUpdate",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    period: integer("period", { mode: "timestamp" }).notNull(),
+    headline: text("headline").notNull().default(""),
+    body: text("body").notNull().default(""),
+    hires: text("hires"),        // freeform: who joined
+    departures: text("departures"),
+    openRoles: text("openRoles"),
+    headcount: integer("headcount"),
+    authorId: text("authorId").notNull().references(() => users.id),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(now()),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(now()),
+  },
+  (t) => ({
+    orgPeriod: uniqueIndex("TeamUpdate_organizationId_period_key").on(t.organizationId, t.period),
+  })
+);
+
+// status: PROSPECT | PILOT | ACTIVE | AT_RISK | CHURNED
+export const customers = sqliteTable(
+  "Customer",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    segment: text("segment"),
+    region: text("region"),
+    arr: integer("arr").notNull().default(0),
+    status: text("status").notNull().default("ACTIVE"),
+    ownerId: text("ownerId").references(() => users.id),
+    notes: text("notes"),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(now()),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(now()),
+  },
+  (t) => ({ orgStatus: index("Customer_organizationId_status_idx").on(t.organizationId, t.status) })
+);
+
+// health: GREEN | AMBER | RED
+export const customerUpdates = sqliteTable(
+  "CustomerUpdate",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    customerId: text("customerId").notNull().references(() => customers.id, { onDelete: "cascade" }),
+    period: integer("period", { mode: "timestamp" }).notNull(),
+    health: text("health").notNull().default("GREEN"),
+    note: text("note").notNull().default(""),
+    authorId: text("authorId").notNull().references(() => users.id),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(now()),
+  },
+  (t) => ({
+    customerPeriod: uniqueIndex("CustomerUpdate_customerId_period_key").on(t.customerId, t.period),
+  })
+);
+
+// Sales & go-to-market: one entry per reporting period. Structured pipeline
+// metrics plus a narrative; metricsJson is a flexible bag for anything else
+// (win rate, ACV, sales cycle days, ...).
+export const gtmUpdates = sqliteTable(
+  "GtmUpdate",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    period: integer("period", { mode: "timestamp" }).notNull(),
+    headline: text("headline").notNull().default(""),
+    body: text("body").notNull().default(""),
+    pipelineValue: integer("pipelineValue").notNull().default(0),
+    qualifiedLeads: integer("qualifiedLeads").notNull().default(0),
+    newWins: integer("newWins").notNull().default(0),
+    lostDeals: integer("lostDeals").notNull().default(0),
+    newArr: integer("newArr").notNull().default(0),
+    metricsJson: text("metricsJson").notNull().default("{}"),
+    authorId: text("authorId").notNull().references(() => users.id),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(now()),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(now()),
+  },
+  (t) => ({
+    orgPeriod: uniqueIndex("GtmUpdate_organizationId_period_key").on(t.organizationId, t.period),
+  })
+);
+
 // -------- Relations for new tables --------
+
+export const risksRelations = relations(risks, ({ one, many }) => ({
+  organization: one(organizations, { fields: [risks.organizationId], references: [organizations.id] }),
+  owner: one(users, { fields: [risks.ownerId], references: [users.id] }),
+  reviews: many(riskReviews),
+}));
+
+export const riskReviewsRelations = relations(riskReviews, ({ one }) => ({
+  risk: one(risks, { fields: [riskReviews.riskId], references: [risks.id] }),
+  meeting: one(meetings, { fields: [riskReviews.meetingId], references: [meetings.id] }),
+  reviewedBy: one(users, { fields: [riskReviews.reviewedById], references: [users.id] }),
+}));
+
+export const projectsRelations = relations(projects, ({ one, many }) => ({
+  organization: one(organizations, { fields: [projects.organizationId], references: [organizations.id] }),
+  owner: one(users, { fields: [projects.ownerId], references: [users.id] }),
+  milestones: many(projectMilestones),
+  updates: many(projectUpdates),
+}));
+
+export const projectMilestonesRelations = relations(projectMilestones, ({ one }) => ({
+  project: one(projects, { fields: [projectMilestones.projectId], references: [projects.id] }),
+}));
+
+export const projectUpdatesRelations = relations(projectUpdates, ({ one }) => ({
+  project: one(projects, { fields: [projectUpdates.projectId], references: [projects.id] }),
+  author: one(users, { fields: [projectUpdates.authorId], references: [users.id] }),
+}));
+
+export const teamUpdatesRelations = relations(teamUpdates, ({ one }) => ({
+  organization: one(organizations, { fields: [teamUpdates.organizationId], references: [organizations.id] }),
+  author: one(users, { fields: [teamUpdates.authorId], references: [users.id] }),
+}));
+
+export const customersRelations = relations(customers, ({ one, many }) => ({
+  organization: one(organizations, { fields: [customers.organizationId], references: [organizations.id] }),
+  owner: one(users, { fields: [customers.ownerId], references: [users.id] }),
+  updates: many(customerUpdates),
+}));
+
+export const customerUpdatesRelations = relations(customerUpdates, ({ one }) => ({
+  customer: one(customers, { fields: [customerUpdates.customerId], references: [customers.id] }),
+  author: one(users, { fields: [customerUpdates.authorId], references: [users.id] }),
+}));
+
+export const gtmUpdatesRelations = relations(gtmUpdates, ({ one }) => ({
+  organization: one(organizations, { fields: [gtmUpdates.organizationId], references: [organizations.id] }),
+  author: one(users, { fields: [gtmUpdates.authorId], references: [users.id] }),
+}));
 
 export const reportTemplatesRelations = relations(reportTemplates, ({ one, many }) => ({
   organization: one(organizations, { fields: [reportTemplates.organizationId], references: [organizations.id] }),
@@ -700,3 +933,12 @@ export type RetreatTemplate = typeof retreatTemplates.$inferSelect;
 export type RetreatIntakeResponse = typeof retreatIntakeResponses.$inferSelect;
 export type ChatThread = typeof chatThreads.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
+export type Risk = typeof risks.$inferSelect;
+export type RiskReview = typeof riskReviews.$inferSelect;
+export type Project = typeof projects.$inferSelect;
+export type ProjectMilestone = typeof projectMilestones.$inferSelect;
+export type ProjectUpdate = typeof projectUpdates.$inferSelect;
+export type TeamUpdate = typeof teamUpdates.$inferSelect;
+export type Customer = typeof customers.$inferSelect;
+export type CustomerUpdate = typeof customerUpdates.$inferSelect;
+export type GtmUpdate = typeof gtmUpdates.$inferSelect;

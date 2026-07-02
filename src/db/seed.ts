@@ -112,7 +112,9 @@ const {
   resolutions, votes, actionItems, reportTemplates, reports, financialPlans,
   financialScenarios, coachingPrograms, coachingLessons, coachingClients,
   lessonAssignments, coachingSessions, retreatActivities, retreats,
-  retreatAgendaItems, retreatTemplates,
+  retreatAgendaItems, retreatTemplates, financialSnapshots,
+  risks, riskReviews, projects, projectMilestones, projectUpdates,
+  teamUpdates, customers, customerUpdates, gtmUpdates,
 } = schema;
 
 import { LEADERSHIP_DAY_AGENDA, LEADERSHIP_DAY_INTAKE, LEADERSHIP_DAY_PHILOSOPHY } from "./seed-content";
@@ -146,6 +148,16 @@ async function main() {
 
   // ── Wipe demo data (idempotent re-seeds) ─────────────────────────────
   sqlite.exec(`
+    DELETE FROM RiskReview;
+    DELETE FROM Risk;
+    DELETE FROM ProjectUpdate;
+    DELETE FROM ProjectMilestone;
+    DELETE FROM Project;
+    DELETE FROM TeamUpdate;
+    DELETE FROM CustomerUpdate;
+    DELETE FROM Customer;
+    DELETE FROM GtmUpdate;
+    DELETE FROM FinancialSnapshot;
     DELETE FROM RetreatIntakeResponse;
     DELETE FROM RetreatTemplate;
     DELETE FROM RetreatTakeaway;
@@ -336,6 +348,115 @@ async function main() {
     { planId: acmePlan.id, name: "Base case", kind: "BASE", assumptions: JSON.stringify({ startingMRR: 333000, monthlyGrowthPct: 7, churnPct: 2, grossMarginPct: 72, monthlyOpexBase: 240000, opexGrowthPct: 1.5, headcountStart: 38, monthlyHires: 1.5, avgFullyLoadedSalary: 195000 }), notes: "Plan-of-record. 7% MoM growth, 38→74 headcount over horizon." },
     { planId: acmePlan.id, name: "Upside", kind: "UPSIDE", assumptions: JSON.stringify({ startingMRR: 333000, monthlyGrowthPct: 11, churnPct: 1.5, grossMarginPct: 75, monthlyOpexBase: 240000, opexGrowthPct: 1.2, headcountStart: 38, monthlyHires: 2.5, avgFullyLoadedSalary: 195000 }), notes: "Enterprise motion lands. Justifies accelerated GTM hiring." },
     { planId: acmePlan.id, name: "Downside", kind: "DOWNSIDE", assumptions: JSON.stringify({ startingMRR: 333000, monthlyGrowthPct: 4, churnPct: 3, grossMarginPct: 70, monthlyOpexBase: 240000, opexGrowthPct: 1, headcountStart: 38, monthlyHires: 0.3, avgFullyLoadedSalary: 195000 }), notes: "Macro slowdown + one large logo churns. Hiring freeze; runway extension to 28 months." },
+  ]);
+
+  // ── Acme: board-reporting demo data (snapshots, risks, projects, team, customers, GTM) ──
+
+  // 12 months of financial snapshots ending in the current month.
+  const monthsBack = (n: number) => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth() - n, 1);
+  };
+  let mrr = 210000;
+  let cash = 17400000;
+  let headcount = 28;
+  const snapshotValues = [];
+  for (let i = 11; i >= 0; i--) {
+    const growth = 1 + 0.055 + (((11 - i) % 3) * 0.012); // 5.5–7.9% MoM, varied
+    if (i < 11) mrr = Math.round(mrr * growth);
+    const revenue = mrr;
+    const grossMargin = 70 + Math.min(3, Math.floor((11 - i) / 4));
+    const burn = Math.round(430000 + (11 - i) * 9000 - revenue * 0.18);
+    cash -= burn;
+    if (i < 11 && (11 - i) % 2 === 0) headcount += 1;
+    snapshotValues.push({
+      organizationId: acme.id,
+      period: monthsBack(i),
+      cash: Math.round(cash),
+      mrr,
+      arr: mrr * 12,
+      revenue,
+      grossMargin,
+      burn,
+      headcount,
+      accountsReceivable: Math.round(revenue * 1.4),
+      accountsPayable: Math.round(revenue * 0.5),
+      createdById: rileyAcme.id,
+      notes: i === 0 ? "Closed Acme Logistics ($420k ACV) mid-month; cash includes their first annual prepay." : null,
+    });
+  }
+  await db.insert(financialSnapshots).values(snapshotValues);
+
+  // Risk register — persistent, carries over each meeting.
+  const [riskSupply, riskChurn, riskKeyPerson, riskCompliance] = await db.insert(risks).values([
+    { organizationId: acme.id, title: "Single-source supplier for drive actuators", description: "80% of actuator supply comes from one vendor. A disruption stops production within 6 weeks.", category: "OPERATIONAL", likelihood: 3, impact: 5, status: "MITIGATING", ownerId: samAcme.id, mitigation: "Qualifying a second supplier (target: Q3). Building 10-week buffer stock in the interim." },
+    { organizationId: acme.id, title: "Mid-market churn concentration", description: "Two churns last quarter were both mid-market logistics accounts citing price. NRR dipped to 108%.", category: "MARKET", likelihood: 3, impact: 4, status: "OPEN", ownerId: rileyAcme.id, mitigation: "CS root-cause review this month; pricing/packaging review with the new VP Sales." },
+    { organizationId: acme.id, title: "Key-person risk: CTO", description: "Sam holds critical context on the perception stack with no clear second.", category: "PEOPLE", likelihood: 2, impact: 5, status: "MITIGATING", ownerId: rileyAcme.id, mitigation: "Promoting a staff engineer to architecture lead; documentation sprint scheduled." },
+    { organizationId: acme.id, title: "SOC 2 Type II timeline", description: "Two enterprise prospects require SOC 2 Type II before contract. Audit window slips push deals to next FY.", category: "LEGAL", likelihood: 2, impact: 3, status: "OPEN", ownerId: drewAcme.id, mitigation: "Audit firm engaged; evidence collection 60% complete." },
+  ]).returning();
+  await db.insert(risks).values({
+    organizationId: acme.id, title: "AWS cost overrun", description: "Infra bill grew 22% MoM in Q1.", category: "FINANCIAL", likelihood: 2, impact: 2, status: "CLOSED", ownerId: samAcme.id, mitigation: "FinOps initiative landed reserved-instance plan; bill down 17%.", closedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+  });
+  await db.insert(riskReviews).values([
+    { riskId: riskSupply.id, meetingId: acmePast.id, likelihood: 4, impact: 5, status: "OPEN", note: "Board asked for a second-source plan by next meeting.", reviewedById: danny.id, createdAt: acmePastDate },
+    { riskId: riskSupply.id, likelihood: 3, impact: 5, status: "MITIGATING", note: "Second supplier in qualification; buffer stock at 6 of 10 weeks.", reviewedById: rileyAcme.id },
+    { riskId: riskChurn.id, meetingId: acmePast.id, likelihood: 3, impact: 4, status: "OPEN", note: "New risk raised at Q1 meeting after two churns.", reviewedById: danny.id, createdAt: acmePastDate },
+    { riskId: riskKeyPerson.id, meetingId: acmePast.id, likelihood: 3, impact: 5, status: "OPEN", note: "Flagged by independent director.", reviewedById: danny.id, createdAt: acmePastDate },
+  ]);
+  void riskCompliance;
+
+  // Key projects / initiatives with milestones and monthly write-ups.
+  const thisPeriod = monthsBack(0);
+  const lastPeriod = monthsBack(1);
+  const [projFleet, projEnterprise, projSeriesB] = await db.insert(projects).values([
+    { organizationId: acme.id, name: "Predictive maintenance MVP", summary: "Ship the predictive-maintenance product to 5 design partners; the wedge for enterprise expansion.", status: "ON_TRACK", ownerId: samAcme.id, startDate: monthsBack(4), targetDate: new Date(Date.now() + 75 * 24 * 60 * 60 * 1000) },
+    { organizationId: acme.id, name: "Enterprise readiness (SSO + SOC 2)", summary: "Unblock the enterprise segment: SSO, RBAC, audit logging, SOC 2 Type II.", status: "AT_RISK", ownerId: drewAcme.id, startDate: monthsBack(5), targetDate: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000) },
+    { organizationId: acme.id, name: "Series B fundraise", summary: "Raise $30–40M Series B in early Q4 to fund the enterprise motion.", status: "ON_TRACK", ownerId: rileyAcme.id, startDate: monthsBack(2), targetDate: new Date(Date.now() + 150 * 24 * 60 * 60 * 1000) },
+  ]).returning();
+  await db.insert(projectMilestones).values([
+    { projectId: projFleet.id, order: 0, title: "Data pipeline for sensor telemetry", status: "DONE", completedAt: monthsBack(2) },
+    { projectId: projFleet.id, order: 1, title: "Model v0 — failure prediction on 2 component classes", status: "DONE", completedAt: monthsBack(1) },
+    { projectId: projFleet.id, order: 2, title: "5 design partners live", status: "IN_PROGRESS", dueDate: new Date(Date.now() + 40 * 24 * 60 * 60 * 1000) },
+    { projectId: projFleet.id, order: 3, title: "GA pricing & packaging", status: "PLANNED", dueDate: new Date(Date.now() + 75 * 24 * 60 * 60 * 1000) },
+    { projectId: projEnterprise.id, order: 0, title: "Enterprise SSO (SAML/OIDC)", status: "DONE", completedAt: monthsBack(1) },
+    { projectId: projEnterprise.id, order: 1, title: "Role-based access control", status: "IN_PROGRESS", dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
+    { projectId: projEnterprise.id, order: 2, title: "SOC 2 Type II audit complete", status: "SLIPPED", dueDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000) },
+    { projectId: projSeriesB.id, order: 0, title: "Narrative + data room v1", status: "IN_PROGRESS", dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
+    { projectId: projSeriesB.id, order: 1, title: "Target list finalized (20 firms)", status: "PLANNED", dueDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000) },
+  ]);
+  await db.insert(projectUpdates).values([
+    { projectId: projFleet.id, period: lastPeriod, headline: "Model v0 beat baseline on both component classes", body: "Precision/recall now good enough for a design-partner pilot. Two partners signed LOIs; three more in legal.", status: "ON_TRACK", authorId: samAcme.id },
+    { projectId: projFleet.id, period: thisPeriod, headline: "3 of 5 design partners live and streaming data", body: "First real-world save: predicted actuator failure at Acme Logistics 9 days early. Case study in draft.\n\nAsk: intro to any fleet operator willing to be partner #6 (waitlist).", status: "ON_TRACK", authorId: samAcme.id },
+    { projectId: projEnterprise.id, period: thisPeriod, headline: "SSO shipped; SOC 2 audit window slipped 3 weeks", body: "SSO is live for two enterprise pilots. The SOC 2 Type II observation window slipped due to evidence-collection gaps in HR tooling — new completion estimate is end of next quarter. This is the main enterprise-deal blocker.", status: "AT_RISK", authorId: drewAcme.id },
+    { projectId: projSeriesB.id, period: thisPeriod, headline: "Narrative v1 drafted; data room 70% assembled", body: "Story: vertical robotics platform with a predictive-maintenance wedge. Practice pitch with the board scheduled for the next meeting.", status: "ON_TRACK", authorId: rileyAcme.id },
+  ]);
+
+  // Team updates (last two months).
+  await db.insert(teamUpdates).values([
+    { organizationId: acme.id, period: lastPeriod, headline: "VP Sales signed; eng hiring on plan", body: "Priya Mehta (ex-CloudOps) signed as VP Sales, starting next month. Engineering made two senior offers, one accepted.", hires: "1× Sr Backend Eng (accepted)", departures: "None", openRoles: "Sr Backend Eng ×1, CS Lead, FP&A Manager", headcount: 37, authorId: rileyAcme.id },
+    { organizationId: acme.id, period: thisPeriod, headline: "Priya (VP Sales) started; zero regretted attrition for 6 months", body: "Priya started Monday and is already rebuilding pipeline hygiene. Team morale strong post-offsite announcement. Watch item: perception team is stretched until the architecture-lead promotion lands.", hires: "Priya Mehta — VP Sales", departures: "None", openRoles: "CS Lead, FP&A Manager, Staff Perception Eng", headcount: 38, authorId: rileyAcme.id },
+  ]);
+
+  // Key customers + monthly health checks.
+  const [custLogistics, custNational, custMetro, custPacific] = await db.insert(customers).values([
+    { organizationId: acme.id, name: "Acme Logistics Group", segment: "Enterprise fleet", region: "North America", arr: 420000, status: "ACTIVE", ownerId: rileyAcme.id, notes: "Largest customer; predictive-maintenance design partner." },
+    { organizationId: acme.id, name: "National Parcel Co.", segment: "Mid-market fleet", region: "North America", arr: 180000, status: "AT_RISK", ownerId: rileyAcme.id, notes: "Renewal in 4 months; new procurement lead pushing on price." },
+    { organizationId: acme.id, name: "Metro Transit Authority", segment: "Public transit", region: "North America", arr: 240000, status: "ACTIVE", ownerId: samAcme.id, notes: "Expansion candidate — depot #2 pilot under discussion." },
+    { organizationId: acme.id, name: "Pacific Cold Chain", segment: "Mid-market fleet", region: "APAC", arr: 95000, status: "PILOT", ownerId: rileyAcme.id, notes: "90-day paid pilot; converts to $190k ACV if SLA met." },
+  ]).returning();
+  await db.insert(customerUpdates).values([
+    { customerId: custLogistics.id, period: thisPeriod, health: "GREEN", note: "Design-partner save (9-day early failure prediction) landed exec sponsorship. Case study approved.", authorId: rileyAcme.id },
+    { customerId: custNational.id, period: thisPeriod, health: "AMBER", note: "New procurement lead benchmarking us against the incumbent. Exec dinner set for the 14th; renewal plan in motion.", authorId: rileyAcme.id },
+    { customerId: custMetro.id, period: thisPeriod, health: "GREEN", note: "Depot #2 pilot scoped; legal review started.", authorId: samAcme.id },
+    { customerId: custPacific.id, period: thisPeriod, health: "AMBER", note: "Pilot SLA at 97.2% vs 98% target — remediation plan agreed, two weeks to cure.", authorId: rileyAcme.id },
+    { customerId: custLogistics.id, period: lastPeriod, health: "GREEN", note: "Onboarding complete across all 3 depots.", authorId: rileyAcme.id },
+    { customerId: custNational.id, period: lastPeriod, health: "GREEN", note: "Usage steady; no signals.", authorId: rileyAcme.id },
+  ]);
+
+  // Sales & GTM updates.
+  await db.insert(gtmUpdates).values([
+    { organizationId: acme.id, period: lastPeriod, headline: "Pipeline rebuilt post-churn; named-account motion showing signal", body: "Weighted pipeline back to $6.8M. The named-account mid-market motion produced 9 qualified opps in its first full month.", pipelineValue: 6800000, qualifiedLeads: 21, newWins: 2, lostDeals: 1, newArr: 310000, authorId: rileyAcme.id },
+    { organizationId: acme.id, period: thisPeriod, headline: "Largest-ever deal closed; enterprise pipeline forming behind SOC 2", body: "Closed Acme Logistics expansion ($420k ACV). Two enterprise deals ($700k combined) are technically won but blocked on SOC 2 Type II — see risk register. Priya's first-30-days focus: pipeline hygiene and win/loss discipline.", pipelineValue: 8400000, qualifiedLeads: 26, newWins: 4, lostDeals: 2, newArr: 720000, authorId: rileyAcme.id },
   ]);
 
   // Acme retreat

@@ -125,6 +125,8 @@ export function CashChart({ curves, height = 220, zeroLine = true }: Props) {
               strokeWidth="2.5"
               strokeLinejoin="round"
               strokeLinecap="round"
+              className="chart-line-animate"
+              style={{ animationDelay: `${ci * 150}ms` }}
             />
           );
         })}

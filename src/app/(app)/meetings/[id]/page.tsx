@@ -156,6 +156,10 @@ export default async function MeetingDetailPage({ params }: { params: Promise<{ 
           </div>
         </div>
 
+        <div className="flex items-center gap-2">
+        <Button asChild>
+          <Link href={`/meetings/${meeting.id}/pack`}>View board pack</Link>
+        </Button>
         {isManager ? (
           <form action={updateMeetingStatus} className="flex items-center gap-2">
             <input type="hidden" name="meetingId" value={meeting.id} />
@@ -176,6 +180,7 @@ export default async function MeetingDetailPage({ params }: { params: Promise<{ 
             </Button>
           </form>
         ) : null}
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

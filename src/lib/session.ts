@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { and, asc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { memberships, organizations } from "@/db/schema";
+import { memberships, organizations, users } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 
 export type SessionUser = { id: string; email: string; name?: string | null };
@@ -74,6 +74,17 @@ export const listMyMemberships = cache(async (userId: string) => {
     .where(eq(memberships.userId, userId))
     .orderBy(asc(organizations.name));
   return rows.map((r) => ({ ...r.m, organization: r.o }));
+});
+
+// Members of an org, for owner/presenter dropdowns.
+export const listOrgMembers = cache(async (organizationId: string) => {
+  const rows = await db
+    .select({ id: users.id, name: users.name, email: users.email, role: memberships.role })
+    .from(memberships)
+    .innerJoin(users, eq(memberships.userId, users.id))
+    .where(eq(memberships.organizationId, organizationId))
+    .orderBy(asc(users.name));
+  return rows;
 });
 
 // Internal helpers used by the action in /lib/actions/portfolio.ts

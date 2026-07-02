@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  AlertTriangle,
+  Building2,
   Calendar,
   CheckSquare,
   ClipboardList,
@@ -9,9 +11,11 @@ import {
   Home,
   LineChart,
   MessageSquare,
+  Rocket,
   Settings,
   Sparkles,
   Tent,
+  TrendingUp,
   Users,
   Vote,
 } from "lucide-react";
@@ -25,14 +29,24 @@ const sections: NavSection[] = [
     label: "Boardroom",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: Home },
-      { href: "/meetings", label: "Meetings", icon: Calendar },
-      { href: "/resolutions", label: "Resolutions", icon: Vote },
+      { href: "/meetings", label: "Meetings & minutes", icon: Calendar },
+      { href: "/resolutions", label: "Decisions & votes", icon: Vote },
       { href: "/reports", label: "Reports", icon: ClipboardList },
-      { href: "/financials", label: "Financials", icon: LineChart },
-      { href: "/documents", label: "Board pack", icon: FileText },
+      { href: "/documents", label: "Documents", icon: FileText },
       { href: "/action-items", label: "Action items", icon: CheckSquare },
       { href: "/members", label: "Members", icon: Users },
       { href: "/chat", label: "AI assistant", icon: MessageSquare },
+    ],
+  },
+  {
+    label: "Monthly reporting",
+    items: [
+      { href: "/financials", label: "Financials", icon: LineChart },
+      { href: "/projects", label: "Key projects", icon: Rocket },
+      { href: "/risks", label: "Risk register", icon: AlertTriangle },
+      { href: "/team", label: "Team update", icon: Users },
+      { href: "/customers", label: "Key customers", icon: Building2 },
+      { href: "/sales", label: "Sales & GTM", icon: TrendingUp },
     ],
   },
   {

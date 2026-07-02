@@ -1,5 +1,11 @@
 # Deploying Quorum to quorum.sidequeststrategies.com
 
+> **AssetCool board-reporting deployment** — to serve this app at
+> `assetcool.sidequeststrategies.com/boardreporting`, follow this guide but see
+> the [AssetCool deployment](#assetcool-deployment-boardreporting) section below
+> for the extra env vars (base path, Google SSO, branding) and the rewrite in
+> the `assetcool-retreat` repo.
+
 Target stack: **Vercel** (Next.js host) + **Turso** (libSQL database) + **Vercel Blob** (file storage). All three have free tiers that comfortably cover this scale; estimated cost at low usage: **$0/month**.
 
 End-to-end time: 30–45 minutes. Most of it is waiting for DNS to propagate and Vercel to provision SSL.
@@ -172,6 +178,33 @@ Production uses Turso + Vercel Blob, but neither side knows or cares about the o
 **Reset Turso to clean slate.** `turso db destroy quorum-prod` then re-create and re-run `npm run db:push`. Be sure — this is irreversible.
 
 ---
+
+## AssetCool deployment (/boardreporting)
+
+The board-reporting portal lives at `https://assetcool.sidequeststrategies.com/boardreporting`, proxied by the `assetcool-retreat` Vercel project (which owns the `assetcool` subdomain). Create a **second Vercel project** from this repo (e.g. `quorum-boardreporting`) with the standard env vars from step 4b **plus**:
+
+| Name | Value | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_BASE_PATH` | `/boardreporting` | Serves every route under the prefix |
+| `NEXTAUTH_URL` | `https://assetcool.sidequeststrategies.com/boardreporting` | Must include the prefix |
+| `AUTH_GOOGLE_ID` | (Google OAuth client ID) | See "Google SSO" below — **Sensitive** |
+| `AUTH_GOOGLE_SECRET` | (Google OAuth client secret) | **Sensitive** |
+| `GOOGLE_ALLOWED_EMAILS` | `danny@sidequeststrategies.com` | Comma-separated allowlist; add AssetCool execs/directors here |
+| `GOOGLE_ALLOWED_DOMAINS` | (optional) `assetcool.com` | Allows a whole domain in one go |
+
+Branding defaults to AssetCool. For a white-label deployment for another client set `NEXT_PUBLIC_BRAND_NAME`, `NEXT_PUBLIC_BRAND_PRODUCT`, `NEXT_PUBLIC_BRAND_TAGLINE` and swap the palette in `src/app/globals.css` (see `BRAND.md`).
+
+Then, in the `assetcool-retreat` repo, point the `rewrites` in `vercel.json` at this project's `*.vercel.app` production domain and redeploy it.
+
+### Google SSO setup (one-time, ~5 minutes)
+
+1. Go to <https://console.cloud.google.com/apis/credentials> (any Google Cloud project).
+2. **Create credentials → OAuth client ID → Web application.**
+3. Authorized redirect URIs — add both:
+   - `https://assetcool.sidequeststrategies.com/boardreporting/api/auth/callback/google`
+   - `https://<your-project>.vercel.app/boardreporting/api/auth/callback/google` (for testing before DNS)
+4. Copy the client ID/secret into the Vercel env vars above and redeploy.
+5. Sign-in behavior: the "Continue with Google" button only appears when `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` are set, and only emails in `GOOGLE_ALLOWED_EMAILS` (or domains in `GOOGLE_ALLOWED_DOMAINS`) are allowed through. Everyone else gets a friendly "ask the workspace owner" error. Password login remains available for demo accounts.
 
 ## Operational notes
 

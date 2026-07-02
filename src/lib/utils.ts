@@ -37,6 +37,21 @@ export function slugify(s: string) {
     .slice(0, 60);
 }
 
+// Reporting periods are stored as the first day of the month (UTC-agnostic,
+// matching financial snapshots). Form inputs use <input type="month"> → "YYYY-MM".
+export function currentPeriodString(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function periodFromString(s: string) {
+  return new Date(s + "-01");
+}
+
+export function formatPeriod(d: Date | string) {
+  const date = typeof d === "string" ? new Date(d) : d;
+  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(date);
+}
+
 export function genToken(prefix = "") {
   // 18-char alphanumeric token. Sufficient for unguessable share links.
   const a = Math.random().toString(36).slice(2, 12);
