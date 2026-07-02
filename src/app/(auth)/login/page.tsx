@@ -84,9 +84,13 @@ async function LoginForm({ searchParamsPromise }: { searchParamsPromise: Promise
     if (supabaseConfigured) {
       const supabase = await getSupabaseServer();
       const origin = await getRequestOrigin();
+      // No query string on redirectTo: Supabase matches it against the
+      // Redirect URLs allowlist strictly, and "?next=..." breaks the match,
+      // silently bouncing sign-ins to the project's Site URL instead. The
+      // callback route defaults to /dashboard anyway.
       const { data, error: sbError } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: `${origin}${BASE_PATH}/auth/callback?next=/dashboard` },
+        options: { redirectTo: `${origin}${BASE_PATH}/auth/callback` },
       });
       if (sbError || !data?.url) redirect("/login?error=oauth");
       redirect(data.url);
