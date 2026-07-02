@@ -187,8 +187,8 @@ The board-reporting portal lives at `https://assetcool.sidequeststrategies.com/b
 
 ### 1. Prepare Supabase (~5 minutes, in the todo project's dashboard)
 
-1. **Connection string** — Project Settings → Database → Connection string → **Transaction** mode (port 6543). This becomes `DATABASE_URL`.
-2. **API keys** — Project Settings → API: copy the Project URL and `anon` key.
+1. **Connection string** — click the **Connect** button in the dashboard's top bar → Connection String → **Transaction pooler** (port 6543, host `…pooler.supabase.com`). Substitute your database password. This becomes `DATABASE_URL`.
+2. **API keys** — Project Settings → **API Keys**: copy the Project URL and the **Publishable key** (`sb_publishable_…`). The publishable key goes into `NEXT_PUBLIC_SUPABASE_ANON_KEY` — it's the drop-in replacement for the legacy `anon` key, which also still works but is deprecated.
 3. **Auth redirect** — Authentication → URL Configuration → Redirect URLs, add:
    - `https://assetcool.sidequeststrategies.com/boardreporting/auth/callback`
    - `https://<your-project>.vercel.app/boardreporting/auth/callback` (for testing before DNS)
@@ -214,7 +214,7 @@ Create a Vercel project from this repo (e.g. `quorum-boardreporting`) with env v
 |---|---|---|
 | `DATABASE_URL` | Supabase pooler connection string | **Sensitive** |
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://<ref>.supabase.co` | Enables Supabase Auth mode |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon key | Safe to expose; used only for auth |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_…` key | Safe to expose; used only for auth (legacy `anon` JWT also accepted) |
 | `NEXT_PUBLIC_BASE_PATH` | `/boardreporting` | Serves every route under the prefix |
 | `GOOGLE_ALLOWED_EMAILS` | `danny@sidequeststrategies.com` | Comma-separated allowlist for first-time SSO sign-ins |
 | `GOOGLE_ALLOWED_DOMAINS` | (optional) `assetcool.com` | Allow a whole domain |
