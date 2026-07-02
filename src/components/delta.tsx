@@ -8,8 +8,17 @@ function fmtVal(v: number, money: boolean, pct?: boolean) {
   return pct ? `${v}%` : String(v);
 }
 
-// KPI tile with movement vs the previous meeting.
-export function DeltaStat({ d }: { d: MetricDelta }) {
+// KPI tile with movement vs the previous meeting (or another baseline —
+// customize the wording via sinceLabel/noPriorLabel).
+export function DeltaStat({
+  d,
+  sinceLabel = "since last meeting",
+  noPriorLabel = "no prior meeting data",
+}: {
+  d: MetricDelta;
+  sinceLabel?: string;
+  noPriorLabel?: string;
+}) {
   const hasDelta = d.delta != null && d.delta !== 0;
   const up = (d.delta ?? 0) > 0;
   const good = hasDelta ? (up ? d.goodWhenUp : !d.goodWhenUp) : true;
@@ -22,7 +31,7 @@ export function DeltaStat({ d }: { d: MetricDelta }) {
           <p className={cn("mt-0.5 flex items-center gap-1 text-xs font-medium", good ? "text-emerald-700" : "text-red-700")}>
             {up ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
             {up ? "+" : "−"}
-            {fmtVal(Math.abs(d.delta!), d.money, d.pct)} since last meeting
+            {fmtVal(Math.abs(d.delta!), d.money, d.pct)} {sinceLabel}
           </p>
         ) : (
           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
@@ -30,7 +39,7 @@ export function DeltaStat({ d }: { d: MetricDelta }) {
           </p>
         )
       ) : (
-        <p className="mt-0.5 text-xs text-muted-foreground">no prior meeting data</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{noPriorLabel}</p>
       )}
     </div>
   );
