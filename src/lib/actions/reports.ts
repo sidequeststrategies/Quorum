@@ -158,6 +158,46 @@ export async function createReport(formData: FormData) {
   redirect(`/reports/${r.id}`);
 }
 
+// Persist the block-editor document. `values` is re-derived from it so the
+// board-pack publisher and Notion sync keep working off plain text.
+export async function saveReportDocument(reportId: string, documentJson: string) {
+  const { membership } = await requireMembership();
+  if (!canManage(membership.role)) throw new Error("Forbidden");
+
+  const rows = await db
+    .select({ r: reports, tmpSections: reportTemplates.sections })
+    .from(reports)
+    .leftJoin(reportTemplates, eq(reports.templateId, reportTemplates.id))
+    .where(and(eq(reports.id, reportId), eq(reports.organizationId, membership.organizationId)))
+    .limit(1);
+  const row = rows[0];
+  if (!row) throw new Error("Not found");
+
+  let blocks: import("@/lib/report-doc").DocBlock[] = [];
+  try {
+    blocks = JSON.parse(documentJson);
+    if (!Array.isArray(blocks)) throw new Error("not an array");
+  } catch {
+    throw new Error("Invalid document payload");
+  }
+
+  let values: Record<string, string> = {};
+  try {
+    const { extractValuesFromDoc } = await import("@/lib/report-doc");
+    const sections = JSON.parse(row.tmpSections ?? "[]");
+    values = extractValuesFromDoc(blocks, sections);
+  } catch {
+    /* keep values empty on parse issues; document is still saved */
+  }
+
+  await db
+    .update(reports)
+    .set({ document: documentJson, values: JSON.stringify(values), updatedAt: new Date() })
+    .where(eq(reports.id, reportId));
+
+  return { savedAt: Date.now() };
+}
+
 export async function saveReport(formData: FormData) {
   const { membership } = await requireMembership();
   const id = String(formData.get("id"));
