@@ -31,9 +31,15 @@ export async function getSupabaseServer() {
   );
 }
 
-// Public origin of the current request, proxy-aware (Vercel rewrites forward
-// the original host). Used to build OAuth redirect URLs.
+// Public origin of the current request, used to build OAuth redirect URLs.
+// Behind the assetcool.sidequeststrategies.com → vercel.app rewrite the
+// forwarded headers can carry the internal deployment host, which would
+// bounce the OAuth callback onto the wrong domain (cookies then live on the
+// wrong host and the PKCE exchange fails). Set APP_ORIGIN to pin it:
+//   APP_ORIGIN=https://assetcool.sidequeststrategies.com
 export async function getRequestOrigin(): Promise<string> {
+  const explicit = process.env.APP_ORIGIN;
+  if (explicit) return explicit.replace(/\/+$/, "");
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
