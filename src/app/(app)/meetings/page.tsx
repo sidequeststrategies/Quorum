@@ -76,8 +76,11 @@ export default async function MeetingsPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Meetings</h1>
-          <p className="text-muted-foreground">Schedule, run, and archive your board meetings.</p>
+          <h1 className="text-3xl font-bold tracking-tight">Board meetings</h1>
+          <p className="text-muted-foreground">
+            The spine of the boardroom — every meeting carries its own pack of financials, projects, risks,
+            customers, team, and GTM, with changes tracked meeting to meeting.
+          </p>
         </div>
         <Button asChild>
           <Link href="/meetings/new">Schedule meeting</Link>
@@ -123,11 +126,8 @@ function Section({
           <ul className="divide-y">
             {meetings.map((m) => (
               <li key={m.id} className="py-3">
-                <Link
-                  href={`/meetings/${m.id}`}
-                  className="flex items-center justify-between gap-4 rounded-md px-2 py-2 hover:bg-accent"
-                >
-                  <div className="flex items-start gap-3">
+                <div className="flex items-center justify-between gap-4 rounded-md px-2 py-2 hover:bg-accent">
+                  <Link href={`/meetings/${m.id}/pack`} className="flex flex-1 items-start gap-3">
                     <div className="mt-1 rounded-md border bg-background p-2">
                       <Calendar className="h-4 w-4" />
                     </div>
@@ -138,13 +138,18 @@ function Section({
                         {m.resolutionCount} resolutions
                       </div>
                     </div>
+                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Button asChild variant="ghost" size="sm">
+                      <Link href={`/meetings/${m.id}`}>Logistics</Link>
+                    </Button>
+                    <Badge
+                      variant={m.status === "COMPLETED" ? "success" : m.status === "DRAFT" ? "secondary" : "default"}
+                    >
+                      {MEETING_STATUS_LABELS[m.status as keyof typeof MEETING_STATUS_LABELS] ?? m.status}
+                    </Badge>
                   </div>
-                  <Badge
-                    variant={m.status === "COMPLETED" ? "success" : m.status === "DRAFT" ? "secondary" : "default"}
-                  >
-                    {MEETING_STATUS_LABELS[m.status as keyof typeof MEETING_STATUS_LABELS] ?? m.status}
-                  </Badge>
-                </Link>
+                </div>
               </li>
             ))}
           </ul>

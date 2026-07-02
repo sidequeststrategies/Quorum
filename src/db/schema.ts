@@ -311,6 +311,8 @@ export const reports = board.table("Report", {
   values: text("values").notNull().default("{}"),
   status: text("status").notNull().default("DRAFT"),
   boardPackDocumentId: text("boardPackDocumentId"), // set when published to board pack
+  notionPageId: text("notionPageId"), // Notion page this report syncs with
+  notionSyncedAt: ts("notionSyncedAt"),
   createdAt: ts("createdAt").notNull().defaultNow(),
   updatedAt: ts("updatedAt").notNull().defaultNow(),
 });
@@ -417,172 +419,6 @@ export const chatMessages = board.table(
   },
   (t) => ({ threadCreated: index("ChatMessage_threadId_createdAt_idx").on(t.threadId, t.createdAt) })
 );
-
-// -------- Coaching --------
-
-// kind: FOUNDER | EXEC | MANAGER | TEAM
-export const coachingPrograms = board.table("CoachingProgram", {
-  id: text("id").primaryKey().default(cuid()),
-  ownerId: text("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  description: text("description"),
-  kind: text("kind").notNull().default("FOUNDER"),
-  createdAt: ts("createdAt").notNull().defaultNow(),
-  updatedAt: ts("updatedAt").notNull().defaultNow(),
-});
-
-// exercises JSON: Array<{ title: string; prompt: string }>
-export const coachingLessons = board.table(
-  "CoachingLesson",
-  {
-    id: text("id").primaryKey().default(cuid()),
-    programId: text("programId").notNull().references(() => coachingPrograms.id, { onDelete: "cascade" }),
-    order: integer("order").notNull(),
-    title: text("title").notNull(),
-    body: text("body").notNull().default(""),
-    durationMin: integer("durationMin").notNull().default(45),
-    exercises: text("exercises").notNull().default("[]"),
-    createdAt: ts("createdAt").notNull().defaultNow(),
-  },
-  (t) => ({ programOrder: index("CoachingLesson_programId_order_idx").on(t.programId, t.order) })
-);
-
-// status: ACTIVE | PAUSED | COMPLETED
-// Clients are external (no login required) — coach owns the relationship
-export const coachingClients = board.table("CoachingClient", {
-  id: text("id").primaryKey().default(cuid()),
-  ownerId: text("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
-  programId: text("programId").references(() => coachingPrograms.id, { onDelete: "set null" }),
-  name: text("name").notNull(),
-  email: text("email"),
-  company: text("company"),
-  role: text("role"), // e.g. "Founder & CEO"
-  status: text("status").notNull().default("ACTIVE"),
-  startDate: ts("startDate"),
-  notes: text("notes"),
-  portalToken: text("portalToken").unique(), // public token for /c/[token] read-only portal
-  portalEnabled: boolean("portalEnabled").notNull().default(false),
-  createdAt: ts("createdAt").notNull().defaultNow(),
-  updatedAt: ts("updatedAt").notNull().defaultNow(),
-});
-
-// status: ASSIGNED | IN_PROGRESS | COMPLETED | SKIPPED
-export const lessonAssignments = board.table(
-  "LessonAssignment",
-  {
-    id: text("id").primaryKey().default(cuid()),
-    lessonId: text("lessonId").notNull().references(() => coachingLessons.id, { onDelete: "cascade" }),
-    clientId: text("clientId").notNull().references(() => coachingClients.id, { onDelete: "cascade" }),
-    status: text("status").notNull().default("ASSIGNED"),
-    assignedAt: ts("assignedAt").notNull().defaultNow(),
-    completedAt: ts("completedAt"),
-    notes: text("notes"),
-  },
-  (t) => ({ lc: uniqueIndex("LessonAssignment_lessonId_clientId_key").on(t.lessonId, t.clientId) })
-);
-
-// Coach session log: 1:1 meeting notes per client
-export const coachingSessions = board.table("CoachingSession", {
-  id: text("id").primaryKey().default(cuid()),
-  clientId: text("clientId").notNull().references(() => coachingClients.id, { onDelete: "cascade" }),
-  ownerId: text("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
-  sessionDate: ts("sessionDate").notNull(),
-  durationMin: integer("durationMin").notNull().default(60),
-  topic: text("topic"),
-  notes: text("notes"),
-  followUps: text("followUps"),
-  createdAt: ts("createdAt").notNull().defaultNow(),
-});
-
-// -------- Retreats / team building --------
-
-// kind: ICEBREAKER | TRUST | STRATEGIC | TEAM_SKILL | LEADERSHIP | REFLECTION
-// isGlobal=true means it's part of the canned library available to everyone
-export const retreatActivities = board.table("RetreatActivity", {
-  id: text("id").primaryKey().default(cuid()),
-  organizationId: text("organizationId").references(() => organizations.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  kind: text("kind").notNull().default("TEAM_SKILL"),
-  description: text("description"),
-  durationMin: integer("durationMin").notNull().default(30),
-  groupSizeMin: integer("groupSizeMin").notNull().default(2),
-  groupSizeMax: integer("groupSizeMax").notNull().default(50),
-  instructions: text("instructions").notNull().default(""),
-  materials: text("materials"),
-  learningObjectives: text("learningObjectives"),
-  isGlobal: boolean("isGlobal").notNull().default(false),
-  createdAt: ts("createdAt").notNull().defaultNow(),
-});
-
-// status: PLANNING | IN_PROGRESS | COMPLETED | CANCELLED
-export const retreats = board.table("Retreat", {
-  id: text("id").primaryKey().default(cuid()),
-  organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
-  organizerId: text("organizerId").notNull().references(() => users.id),
-  title: text("title").notNull(),
-  description: text("description"),
-  location: text("location"),
-  startDate: ts("startDate").notNull(),
-  endDate: ts("endDate").notNull(),
-  status: text("status").notNull().default("PLANNING"),
-  intakeToken: text("intakeToken").unique(), // public token for /r/[token] intake form
-  intakeOpen: boolean("intakeOpen").notNull().default(true),
-  philosophy: text("philosophy"), // freeform "principles / day at a glance" content (markdown)
-  createdAt: ts("createdAt").notNull().defaultNow(),
-  updatedAt: ts("updatedAt").notNull().defaultNow(),
-});
-
-// A reusable "blueprint" for a full retreat (run-of-show + philosophy + intake schema)
-// agenda JSON: Array<{ title, description, durationMin, activityKey?, facilitatorRole? }>
-// intakeSchema JSON: Array<{ id, label, kind, options?, required? }>
-export const retreatTemplates = board.table("RetreatTemplate", {
-  id: text("id").primaryKey().default(cuid()),
-  organizationId: text("organizationId").references(() => organizations.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  tagline: text("tagline"),
-  philosophy: text("philosophy").notNull().default(""),
-  agenda: text("agenda").notNull().default("[]"),
-  intakeSchema: text("intakeSchema").notNull().default("[]"),
-  isGlobal: boolean("isGlobal").notNull().default(false),
-  createdAt: ts("createdAt").notNull().defaultNow(),
-  updatedAt: ts("updatedAt").notNull().defaultNow(),
-});
-
-// One submission to a retreat's intake form
-// answers JSON: Record<sectionId, value>
-export const retreatIntakeResponses = board.table("RetreatIntakeResponse", {
-  id: text("id").primaryKey().default(cuid()),
-  retreatId: text("retreatId").notNull().references(() => retreats.id, { onDelete: "cascade" }),
-  participantName: text("participantName").notNull(),
-  participantEmail: text("participantEmail"),
-  participantRole: text("participantRole"),
-  answers: text("answers").notNull().default("{}"),
-  submittedAt: ts("submittedAt").notNull().defaultNow(),
-});
-
-export const retreatAgendaItems = board.table(
-  "RetreatAgendaItem",
-  {
-    id: text("id").primaryKey().default(cuid()),
-    retreatId: text("retreatId").notNull().references(() => retreats.id, { onDelete: "cascade" }),
-    activityId: text("activityId").references(() => retreatActivities.id, { onDelete: "set null" }),
-    order: integer("order").notNull(),
-    title: text("title").notNull(),
-    description: text("description"),
-    scheduledAt: ts("scheduledAt"),
-    durationMin: integer("durationMin").notNull().default(30),
-    facilitatorName: text("facilitatorName"),
-  },
-  (t) => ({ retreatOrder: index("RetreatAgendaItem_retreatId_order_idx").on(t.retreatId, t.order) })
-);
-
-export const retreatTakeaways = board.table("RetreatTakeaway", {
-  id: text("id").primaryKey().default(cuid()),
-  retreatId: text("retreatId").notNull().references(() => retreats.id, { onDelete: "cascade" }),
-  authorId: text("authorId").notNull().references(() => users.id),
-  content: text("content").notNull(),
-  createdAt: ts("createdAt").notNull().defaultNow(),
-});
 
 // -------- Risk register --------
 
@@ -768,6 +604,45 @@ export const gtmUpdates = board.table(
   })
 );
 
+// -------- Forecast snapshots (per meeting) --------
+
+// The forecast as it stood at a given board meeting. Capturing one per
+// meeting lets the board see how the forward view shifted meeting to
+// meeting: assumptions are stored verbatim, headline outputs are computed
+// at capture time so comparisons are cheap.
+export const forecastSnapshots = board.table(
+  "ForecastSnapshot",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    meetingId: text("meetingId").notNull().references(() => meetings.id, { onDelete: "cascade" }),
+    name: text("name").notNull().default("Base case"),
+    sourceScenarioId: text("sourceScenarioId").references(() => financialScenarios.id, { onDelete: "set null" }),
+    assumptions: text("assumptions").notNull(), // ScenarioAssumptions JSON
+    startingCash: integer("startingCash").notNull().default(0),
+    startMonth: ts("startMonth").notNull(),
+    horizonMonths: integer("horizonMonths").notNull().default(24),
+    // Headline outputs computed at capture time
+    runwayMonths: integer("runwayMonths"), // null = cash-flow positive through horizon
+    endingArr: integer("endingArr").notNull().default(0),
+    endingCash: integer("endingCash").notNull().default(0),
+    breakevenMonth: integer("breakevenMonth"),
+    createdById: text("createdById").notNull().references(() => users.id),
+    createdAt: ts("createdAt").notNull().defaultNow(),
+  },
+  (t) => ({
+    meetingName: uniqueIndex("ForecastSnapshot_meetingId_name_key").on(t.meetingId, t.name),
+  })
+);
+
+export const forecastSnapshotsRelations = relations(forecastSnapshots, ({ one }) => ({
+  organization: one(organizations, { fields: [forecastSnapshots.organizationId], references: [organizations.id] }),
+  meeting: one(meetings, { fields: [forecastSnapshots.meetingId], references: [meetings.id] }),
+  createdBy: one(users, { fields: [forecastSnapshots.createdById], references: [users.id] }),
+}));
+
+export type ForecastSnapshot = typeof forecastSnapshots.$inferSelect;
+
 // -------- Relations for new tables --------
 
 export const risksRelations = relations(risks, ({ one, many }) => ({
@@ -819,34 +694,6 @@ export const gtmUpdatesRelations = relations(gtmUpdates, ({ one }) => ({
   author: one(users, { fields: [gtmUpdates.authorId], references: [users.id] }),
 }));
 
-export const coachingProgramsRelations = relations(coachingPrograms, ({ one, many }) => ({
-  owner: one(users, { fields: [coachingPrograms.ownerId], references: [users.id] }),
-  lessons: many(coachingLessons),
-  clients: many(coachingClients),
-}));
-
-export const coachingLessonsRelations = relations(coachingLessons, ({ one, many }) => ({
-  program: one(coachingPrograms, { fields: [coachingLessons.programId], references: [coachingPrograms.id] }),
-  assignments: many(lessonAssignments),
-}));
-
-export const coachingClientsRelations = relations(coachingClients, ({ one, many }) => ({
-  owner: one(users, { fields: [coachingClients.ownerId], references: [users.id] }),
-  program: one(coachingPrograms, { fields: [coachingClients.programId], references: [coachingPrograms.id] }),
-  assignments: many(lessonAssignments),
-  sessions: many(coachingSessions),
-}));
-
-export const lessonAssignmentsRelations = relations(lessonAssignments, ({ one }) => ({
-  lesson: one(coachingLessons, { fields: [lessonAssignments.lessonId], references: [coachingLessons.id] }),
-  client: one(coachingClients, { fields: [lessonAssignments.clientId], references: [coachingClients.id] }),
-}));
-
-export const coachingSessionsRelations = relations(coachingSessions, ({ one }) => ({
-  client: one(coachingClients, { fields: [coachingSessions.clientId], references: [coachingClients.id] }),
-  owner: one(users, { fields: [coachingSessions.ownerId], references: [users.id] }),
-}));
-
 export const reportTemplatesRelations = relations(reportTemplates, ({ one, many }) => ({
   organization: one(organizations, { fields: [reportTemplates.organizationId], references: [organizations.id] }),
   reports: many(reports),
@@ -868,36 +715,6 @@ export const financialScenariosRelations = relations(financialScenarios, ({ one 
   plan: one(financialPlans, { fields: [financialScenarios.planId], references: [financialPlans.id] }),
 }));
 
-export const retreatsRelations = relations(retreats, ({ one, many }) => ({
-  organization: one(organizations, { fields: [retreats.organizationId], references: [organizations.id] }),
-  organizer: one(users, { fields: [retreats.organizerId], references: [users.id] }),
-  agenda: many(retreatAgendaItems),
-  takeaways: many(retreatTakeaways),
-}));
-
-export const retreatActivitiesRelations = relations(retreatActivities, ({ one, many }) => ({
-  organization: one(organizations, { fields: [retreatActivities.organizationId], references: [organizations.id] }),
-  agendaItems: many(retreatAgendaItems),
-}));
-
-export const retreatAgendaItemsRelations = relations(retreatAgendaItems, ({ one }) => ({
-  retreat: one(retreats, { fields: [retreatAgendaItems.retreatId], references: [retreats.id] }),
-  activity: one(retreatActivities, { fields: [retreatAgendaItems.activityId], references: [retreatActivities.id] }),
-}));
-
-export const retreatTakeawaysRelations = relations(retreatTakeaways, ({ one }) => ({
-  retreat: one(retreats, { fields: [retreatTakeaways.retreatId], references: [retreats.id] }),
-  author: one(users, { fields: [retreatTakeaways.authorId], references: [users.id] }),
-}));
-
-export const retreatTemplatesRelations = relations(retreatTemplates, ({ one }) => ({
-  organization: one(organizations, { fields: [retreatTemplates.organizationId], references: [organizations.id] }),
-}));
-
-export const retreatIntakeResponsesRelations = relations(retreatIntakeResponses, ({ one }) => ({
-  retreat: one(retreats, { fields: [retreatIntakeResponses.retreatId], references: [retreats.id] }),
-}));
-
 // Inferred types for convenience
 export type User = typeof users.$inferSelect;
 export type Organization = typeof organizations.$inferSelect;
@@ -915,17 +732,6 @@ export type FinancialPlan = typeof financialPlans.$inferSelect;
 export type FinancialScenario = typeof financialScenarios.$inferSelect;
 export type FinancialSnapshot = typeof financialSnapshots.$inferSelect;
 export type FinancialDocument = typeof financialDocuments.$inferSelect;
-export type CoachingProgram = typeof coachingPrograms.$inferSelect;
-export type CoachingLesson = typeof coachingLessons.$inferSelect;
-export type CoachingClient = typeof coachingClients.$inferSelect;
-export type LessonAssignment = typeof lessonAssignments.$inferSelect;
-export type CoachingSession = typeof coachingSessions.$inferSelect;
-export type Retreat = typeof retreats.$inferSelect;
-export type RetreatActivity = typeof retreatActivities.$inferSelect;
-export type RetreatAgendaItem = typeof retreatAgendaItems.$inferSelect;
-export type RetreatTakeaway = typeof retreatTakeaways.$inferSelect;
-export type RetreatTemplate = typeof retreatTemplates.$inferSelect;
-export type RetreatIntakeResponse = typeof retreatIntakeResponses.$inferSelect;
 export type ChatThread = typeof chatThreads.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type Risk = typeof risks.$inferSelect;

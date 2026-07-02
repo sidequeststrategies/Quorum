@@ -8,9 +8,11 @@ import { db } from "@/lib/db";
 import { meetings, reportTemplates } from "@/db/schema";
 import { requireMembership } from "@/lib/session";
 import { createReport } from "@/lib/actions/reports";
+import { ensureGlobalTemplates } from "@/lib/report-templates";
 
 export default async function NewReportPage() {
   const { membership } = await requireMembership();
+  await ensureGlobalTemplates();
   const [templates, upcomingMeetings] = await Promise.all([
     db
       .select()

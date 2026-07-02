@@ -45,30 +45,6 @@ export const REPORT_STATUSES = ["DRAFT", "PUBLISHED"] as const;
 export const SCENARIO_KINDS = ["BASE", "UPSIDE", "DOWNSIDE", "CUSTOM"] as const;
 export type ScenarioKind = (typeof SCENARIO_KINDS)[number];
 
-// Coaching
-export const COACHING_PROGRAM_KINDS = ["FOUNDER", "EXEC", "MANAGER", "TEAM"] as const;
-export const COACHING_PROGRAM_LABELS: Record<string, string> = {
-  FOUNDER: "Founder coaching",
-  EXEC: "Executive coaching",
-  MANAGER: "Manager coaching",
-  TEAM: "Team coaching",
-};
-
-export const COACHING_CLIENT_STATUSES = ["ACTIVE", "PAUSED", "COMPLETED"] as const;
-export const LESSON_ASSIGNMENT_STATUSES = ["ASSIGNED", "IN_PROGRESS", "COMPLETED", "SKIPPED"] as const;
-
-// Retreats
-export const RETREAT_STATUSES = ["PLANNING", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
-export const ACTIVITY_KINDS = ["ICEBREAKER", "TRUST", "STRATEGIC", "TEAM_SKILL", "LEADERSHIP", "REFLECTION"] as const;
-export const ACTIVITY_KIND_LABELS: Record<string, string> = {
-  ICEBREAKER: "Icebreaker",
-  TRUST: "Trust building",
-  STRATEGIC: "Strategic alignment",
-  TEAM_SKILL: "Team skill",
-  LEADERSHIP: "Leadership",
-  REFLECTION: "Reflection",
-};
-
 // Risk register
 export const RISK_CATEGORIES = ["STRATEGIC", "FINANCIAL", "OPERATIONAL", "PEOPLE", "TECHNICAL", "LEGAL", "MARKET"] as const;
 export type RiskCategory = (typeof RISK_CATEGORIES)[number];

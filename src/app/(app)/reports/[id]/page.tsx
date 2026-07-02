@@ -10,6 +10,8 @@ import { requireMembership } from "@/lib/session";
 import { formatDate } from "@/lib/utils";
 import { ReportEditor, type ReportSection } from "./report-editor";
 import { publishToBoardPack } from "@/lib/actions/reports";
+import { pullReportFromNotionAction, syncReportToNotion } from "@/lib/actions/notion";
+import { notionConfigured } from "@/lib/notion-sync";
 
 export default async function ReportDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -84,6 +86,44 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
           />
         </CardContent>
       </Card>
+
+      {notionConfigured && sections.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Notion sync</CardTitle>
+            <CardDescription>
+              Push writes this report to a Notion page (one heading per section) so it can be edited in Notion —
+              by hand or with Claude via the Notion MCP server. Pull brings those edits back here.
+              {row.r.notionSyncedAt ? ` Last synced ${formatDate(row.r.notionSyncedAt)}.` : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-3">
+            <form action={syncReportToNotion}>
+              <input type="hidden" name="id" value={row.r.id} />
+              <Button type="submit">{row.r.notionPageId ? "Push to Notion (overwrite page)" : "Push to Notion"}</Button>
+            </form>
+            {row.r.notionPageId ? (
+              <>
+                <form action={pullReportFromNotionAction}>
+                  <input type="hidden" name="id" value={row.r.id} />
+                  <Button type="submit" variant="outline">
+                    Pull from Notion (overwrite sections here)
+                  </Button>
+                </form>
+                <Button asChild variant="ghost">
+                  <a
+                    href={`https://www.notion.so/${row.r.notionPageId.replace(/-/g, "")}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open in Notion ↗
+                  </a>
+                </Button>
+              </>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {row.meetingId ? (
         <Card>
