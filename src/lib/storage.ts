@@ -154,7 +154,9 @@ export function getStorage(): Storage {
   const url = process.env.DATABASE_URL;
   const isPg = !!url && (url.startsWith("postgres://") || url.startsWith("postgresql://"));
   // Default: private db storage on Postgres deployments, local disk otherwise.
-  const driver = (process.env.STORAGE_DRIVER ?? (isPg ? "db" : "local")).toLowerCase();
+  // trim() guards against stray whitespace/CR from CLI-piped env values.
+  const fallback = isPg ? "db" : "local";
+  const driver = (process.env.STORAGE_DRIVER ?? fallback).trim().toLowerCase();
   if (driver === "db") {
     cached = new DbStorage();
   } else if (driver === "vercel-blob") {
@@ -163,11 +165,11 @@ export function getStorage(): Storage {
     }
     console.warn("STORAGE_DRIVER=vercel-blob stores files on public URLs — use STORAGE_DRIVER=db for board documents");
     cached = new VercelBlobStorage();
-  } else if (driver !== "local") {
-    console.warn(`Unknown STORAGE_DRIVER='${driver}', falling back to local`);
+  } else if (driver === "local") {
     cached = new LocalStorage();
   } else {
-    cached = new LocalStorage();
+    console.warn(`Unknown STORAGE_DRIVER='${driver}', falling back to ${fallback}`);
+    cached = fallback === "db" ? new DbStorage() : new LocalStorage();
   }
   return cached;
 }
