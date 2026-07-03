@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   const forwardedHost = request.headers.get("x-forwarded-host");
   const forwardedProto = request.headers.get("x-forwarded-proto") ?? "https";
   const publicOrigin =
-    process.env.APP_ORIGIN?.replace(/\/+$/, "") ??
+    process.env.APP_ORIGIN?.trim().replace(/\/+$/, "") ??
     (process.env.NODE_ENV === "development" || !forwardedHost
       ? origin
       : `${forwardedProto.split(",")[0]}://${forwardedHost.split(",")[0]}`);
