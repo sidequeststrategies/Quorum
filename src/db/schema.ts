@@ -501,6 +501,29 @@ export type FinancialReport = typeof financialReports.$inferSelect;
 export type FinancialForecastValue = typeof financialForecastValues.$inferSelect;
 export type FunnelSnapshot = typeof funnelSnapshots.$inferSelect;
 
+// -------- Pro forma models --------
+
+// A parsed financial-model workbook (the company's pro forma), stored as a
+// quarterly baseline JSON (see lib/proforma.ts ProFormaBaseline). The
+// interactive modeling page recomputes P&L and cash from this baseline as
+// assumption sliders move; uploading a new model vintage re-baselines it.
+export const proFormaModels = board.table(
+  "ProFormaModel",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    vintage: ts("vintage").notNull(), // first day of the month the model was issued
+    sourceDocumentId: text("sourceDocumentId").references(() => financialDocuments.id, { onDelete: "set null" }),
+    baselineJson: text("baselineJson").notNull(),
+    createdById: text("createdById").notNull().references(() => users.id),
+    createdAt: ts("createdAt").notNull().defaultNow(),
+  },
+  (t) => ({ orgCreated: index("ProFormaModel_organizationId_createdAt_idx").on(t.organizationId, t.createdAt) })
+);
+
+export type ProFormaModel = typeof proFormaModels.$inferSelect;
+
 // -------- Private file storage --------
 
 // Files stored in Postgres (STORAGE_DRIVER=db) instead of a public bucket.
