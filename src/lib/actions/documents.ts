@@ -58,7 +58,13 @@ export async function uploadDocument(formData: FormData) {
   const buf = Buffer.from(await file.arrayBuffer());
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-80);
   const keyHint = `${membership.organizationId}/${Date.now()}-${safeName}`;
-  const stored = await getStorage().put({ keyHint, data: buf, mimeType: file.type });
+  const stored = await getStorage().put({
+    keyHint,
+    data: buf,
+    mimeType: file.type,
+    organizationId: membership.organizationId,
+    filename: file.name,
+  });
 
   const [doc] = await db
     .insert(documents)

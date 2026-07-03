@@ -99,17 +99,14 @@ Paste these into Vercel's "Environment Variables" section. Mark anything that lo
 | `AUTH_SECRET` | (32 random bytes, base64) | Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` — **Sensitive** |
 | `AUTH_TRUST_HOST` | `true` | |
 | `NEXTAUTH_URL` | `https://quorum.sidequeststrategies.com` | Must match your final domain |
-| `STORAGE_DRIVER` | `vercel-blob` | |
+| `STORAGE_DRIVER` | `db` | Private file storage: Postgres rows served via the authenticated `/api/files/[id]` route (org-scoped, audit-logged). Do **not** use `vercel-blob` for board documents — Blob URLs are public-by-URL. |
 | `ANTHROPIC_API_KEY` | (your key, optional) | Leave unset to disable `/chat` — **Sensitive** |
 | `NOTION_TOKEN` | (optional) internal integration secret | Enables report push/pull sync to Notion — **Sensitive** |
 | `NOTION_REPORTS_PAGE_ID` | (optional) parent page id | The "Board Reports" Notion page the reports sync under; share it with the integration |
 
-### 4c. Connect a Vercel Blob store
+### 4c. File storage
 
-1. In your Vercel project, go to **Storage → Connect Store**
-2. Pick **Blob → Create**
-3. Name it `quorum-uploads`
-4. Vercel auto-injects `BLOB_READ_WRITE_TOKEN` into your project — no manual env var needed
+Nothing to provision: `STORAGE_DRIVER=db` keeps files in the database (bytea rows), downloads go through `/api/files/[id]` which requires a session and membership in the file's org, and every download lands in the audit log (Settings → Activity log). Files uploaded before this switch live on Vercel Blob's public URLs — re-upload anything confidential and delete the old copies from the Blob store.
 
 ### 4d. Deploy
 

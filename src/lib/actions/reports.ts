@@ -451,6 +451,8 @@ export async function publishToBoardPack(formData: FormData) {
     keyHint,
     data: Buffer.from(html, "utf8"),
     mimeType: "text/html",
+    organizationId: membership.organizationId,
+    filename: `${row.r.title}.html`,
   });
 
   // Create or replace the linked Document
