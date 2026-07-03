@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { count, desc, eq, inArray } from "drizzle-orm";
-import { CalendarDays, FileSpreadsheet, FileText, LineChart, Plus, Trash2, Upload } from "lucide-react";
+import { CalendarDays, FileSpreadsheet, FileText, LineChart, Plus, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -161,6 +161,25 @@ export default async function FinancialsPage() {
               ))}
             </ul>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Pro forma & modeling */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Pro forma &amp; scenario modeling</CardTitle>
+          <CardDescription>
+            The company's forward model, interactive: adjust assumptions with sliders, watch the P&amp;L and cash
+            position recompute, and stress-test with sensitivity analysis.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="outline">
+            <Link href="/financials/proforma">
+              <SlidersHorizontal className="mr-1 h-4 w-4" />
+              Open the modeling workbench
+            </Link>
+          </Button>
         </CardContent>
       </Card>
 
