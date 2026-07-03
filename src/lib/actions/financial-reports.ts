@@ -17,6 +17,7 @@ import { parseFinancialWorkbook, parseFunnelWorkbook } from "@/lib/xlsx-import";
 import { type ParsedImport } from "@/lib/snapshot-fields";
 import { type ParsedFunnel } from "@/lib/funnel";
 import { applyMonthlyReportImport } from "@/lib/financial-report-import";
+import { logAccess } from "@/lib/audit";
 import { currentPeriodString } from "@/lib/utils";
 
 const XLSX_MIME = new Set([
@@ -73,6 +74,15 @@ export async function parseReportPackAction(
       keyHint,
       data: buf,
       mimeType: file.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      organizationId: membership.organizationId,
+      filename: file.name,
+    });
+    await logAccess({
+      organizationId: membership.organizationId,
+      userId: membership.userId,
+      action: "FILE_UPLOAD",
+      resource: "board-pack",
+      detail: file.name,
     });
 
     // Suggest the latest parsed month that isn't in the future — that's
@@ -110,6 +120,14 @@ export async function createMonthlyReportAction(formData: FormData) {
     },
   });
 
+  await logAccess({
+    organizationId: membership.organizationId,
+    userId: user.id,
+    action: "REPORT_CREATE",
+    resource: "financial-report",
+    detail: reportMonth,
+  });
+
   revalidatePath("/financials");
   revalidatePath(`/financials/reports/${reportMonth}`);
   redirect(`/financials/reports/${reportMonth}`);
@@ -128,6 +146,13 @@ export async function deleteMonthlyReportAction(formData: FormData) {
   // Forecast rows cascade; snapshots and funnel data stay (they're the
   // org's actuals, not the report's).
   await db.delete(financialReports).where(eq(financialReports.id, id));
+  await logAccess({
+    organizationId: membership.organizationId,
+    action: "REPORT_DELETE",
+    resource: "financial-report",
+    resourceId: id,
+    detail: rows[0].title,
+  });
   revalidatePath("/financials");
   redirect("/financials");
 }

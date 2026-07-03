@@ -50,6 +50,10 @@ async function SignupForm({ searchParamsPromise }: { searchParamsPromise: Promis
 
   async function signupAction(formData: FormData) {
     "use server";
+    // The page redirects away in SSO mode, but the action must refuse too —
+    // server actions are directly invokable regardless of what the page
+    // renders, and open password signup has no place on an SSO deployment.
+    if (supabaseConfigured) redirect("/login");
     const parsed = signupSchema.safeParse({
       name: formData.get("name"),
       email: formData.get("email"),

@@ -1,5 +1,13 @@
 import { sql, relations } from "drizzle-orm";
-import { pgSchema, text, integer, boolean, timestamp, primaryKey, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgSchema, text, integer, boolean, timestamp, primaryKey, index, uniqueIndex, customType } from "drizzle-orm/pg-core";
+
+// Postgres bytea. postgres-js and PGlite both return Uint8Array; normalize to
+// Buffer on read in callers.
+const bytea = customType<{ data: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 // All tables live in their own Postgres schema so the app can share a
 // Supabase project with other apps (e.g. the todo project) without
@@ -492,6 +500,56 @@ export const funnelSnapshotsRelations = relations(funnelSnapshots, ({ one }) => 
 export type FinancialReport = typeof financialReports.$inferSelect;
 export type FinancialForecastValue = typeof financialForecastValues.$inferSelect;
 export type FunnelSnapshot = typeof funnelSnapshots.$inferSelect;
+
+// -------- Private file storage --------
+
+// Files stored in Postgres (STORAGE_DRIVER=db) instead of a public bucket.
+// Board packs and report media are confidential: rows are only readable
+// through /api/files/[id], which checks the requester's membership in the
+// file's organization. Monthly board volume (a few files, ≤25MB each) is
+// well within comfortable bytea territory.
+export const fileBlobs = board.table(
+  "FileBlob",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    mimeType: text("mimeType").notNull(),
+    sizeBytes: integer("sizeBytes").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: ts("createdAt").notNull().defaultNow(),
+  },
+  (t) => ({ org: index("FileBlob_organizationId_idx").on(t.organizationId) })
+);
+
+// -------- Audit trail --------
+
+// Who did what, when — file downloads/uploads, report create/delete. Board
+// packs are inside information; the log gives directors confidentiality
+// with traceability. Writes are fire-and-forget (never block the action).
+// action: FILE_DOWNLOAD | FILE_UPLOAD | REPORT_CREATE | REPORT_DELETE | DOC_UPLOAD | DOC_DELETE | ...
+export const accessLogs = board.table(
+  "AccessLog",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("userId").references(() => users.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    resource: text("resource"), // e.g. "financial-report", "file"
+    resourceId: text("resourceId"),
+    detail: text("detail"), // human-readable: filename, period, ...
+    createdAt: ts("createdAt").notNull().defaultNow(),
+  },
+  (t) => ({ orgCreated: index("AccessLog_organizationId_createdAt_idx").on(t.organizationId, t.createdAt) })
+);
+
+export const accessLogsRelations = relations(accessLogs, ({ one }) => ({
+  organization: one(organizations, { fields: [accessLogs.organizationId], references: [organizations.id] }),
+  user: one(users, { fields: [accessLogs.userId], references: [users.id] }),
+}));
+
+export type FileBlob = typeof fileBlobs.$inferSelect;
+export type AccessLog = typeof accessLogs.$inferSelect;
 
 // -------- AI chat (per-org assistant) --------
 

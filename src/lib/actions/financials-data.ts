@@ -8,6 +8,7 @@ import { financialDocuments, financialSnapshots } from "@/db/schema";
 import { canManage, requireMembership } from "@/lib/session";
 import { FINANCIAL_DOC_KINDS } from "@/lib/financial-docs";
 import { getStorage } from "@/lib/storage";
+import { logAccess } from "@/lib/audit";
 
 const ALLOWED_MIME = new Set([
   "application/pdf",
@@ -141,7 +142,13 @@ export async function uploadFinancialDocument(formData: FormData) {
   const buf = Buffer.from(await file.arrayBuffer());
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-80);
   const keyHint = `${membership.organizationId}/financials/${Date.now()}-${parsed.kind}-${safeName}`;
-  const stored = await getStorage().put({ keyHint, data: buf, mimeType: file.type });
+  const stored = await getStorage().put({
+    keyHint,
+    data: buf,
+    mimeType: file.type,
+    organizationId: membership.organizationId,
+    filename: file.name,
+  });
 
   const period = new Date(parsed.period + "-01");
 
@@ -156,6 +163,14 @@ export async function uploadFinancialDocument(formData: FormData) {
     sizeBytes: stored.size,
     storagePath: stored.url,
     uploadedById: user.id,
+  });
+
+  await logAccess({
+    organizationId: membership.organizationId,
+    userId: user.id,
+    action: "DOC_UPLOAD",
+    resource: "financial-document",
+    detail: `${parsed.kind}: ${file.name} (${parsed.period})`,
   });
 
   revalidatePath("/financials");
@@ -175,5 +190,12 @@ export async function deleteFinancialDocument(formData: FormData) {
   if (!doc) throw new Error("Not found");
   await getStorage().delete(doc.storagePath);
   await db.delete(financialDocuments).where(eq(financialDocuments.id, id));
+  await logAccess({
+    organizationId: membership.organizationId,
+    action: "DOC_DELETE",
+    resource: "financial-document",
+    resourceId: doc.id,
+    detail: doc.filename,
+  });
   revalidatePath("/financials");
 }

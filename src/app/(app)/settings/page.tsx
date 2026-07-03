@@ -1,4 +1,6 @@
 import { revalidatePath } from "next/cache";
+import Link from "next/link";
+import { ShieldCheck } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -75,6 +77,23 @@ export default async function SettingsPage() {
           </form>
         </CardContent>
       </Card>
+
+      {isManager ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Security</CardTitle>
+            <CardDescription>Audit trail of file downloads, uploads, and report changes.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="outline">
+              <Link href="/activity">
+                <ShieldCheck className="mr-1 h-4 w-4" />
+                View activity log
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

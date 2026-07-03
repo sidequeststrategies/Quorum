@@ -29,7 +29,13 @@ export async function POST(request: Request) {
   const buf = Buffer.from(await file.arrayBuffer());
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-80);
   const keyHint = `${membership.organizationId}/report-media/${Date.now()}-${safeName}`;
-  const stored = await getStorage().put({ keyHint, data: buf, mimeType: file.type });
+  const stored = await getStorage().put({
+    keyHint,
+    data: buf,
+    mimeType: file.type,
+    organizationId: membership.organizationId,
+    filename: file.name,
+  });
 
   return NextResponse.json({ url: stored.url });
 }
