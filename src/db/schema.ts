@@ -399,6 +399,100 @@ export const financialScenarios = board.table("FinancialScenario", {
   updatedAt: ts("updatedAt").notNull().defaultNow(),
 });
 
+// -------- Monthly financial reports (Excel-driven) --------
+
+// One financial report per calendar month, created from the uploaded board
+// financial pack (Excel). The report owns the source document, the actuals
+// written into financialSnapshots for months up to its period, the forward
+// forecast rows captured from the same workbook, and the funnel snapshot.
+// status: DRAFT | PUBLISHED
+export const financialReports = board.table(
+  "FinancialReport",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    period: ts("period").notNull(), // first day of the reported month
+    title: text("title").notNull(),
+    status: text("status").notNull().default("DRAFT"),
+    sourceDocumentId: text("sourceDocumentId").references(() => financialDocuments.id, { onDelete: "set null" }),
+    notes: text("notes"),
+    createdById: text("createdById").notNull().references(() => users.id),
+    createdAt: ts("createdAt").notNull().defaultNow(),
+    updatedAt: ts("updatedAt").notNull().defaultNow(),
+  },
+  (t) => ({
+    orgPeriod: uniqueIndex("FinancialReport_organizationId_period_key").on(t.organizationId, t.period),
+  })
+);
+
+// Forward-looking metric values captured with a monthly report. When the
+// uploaded pack contains months beyond the report month, those cells land
+// here rather than in financialSnapshots — so "what we forecast in March"
+// can later be compared against "what actually happened in June".
+// field: a SnapshotField name (cash, revenue, mrr, arr, grossMargin, burn, headcount, …)
+export const financialForecastValues = board.table(
+  "FinancialForecastValue",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    reportId: text("reportId").notNull().references(() => financialReports.id, { onDelete: "cascade" }),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    field: text("field").notNull(),
+    targetPeriod: ts("targetPeriod").notNull(), // first day of the forecast month
+    value: integer("value").notNull().default(0),
+  },
+  (t) => ({
+    reportFieldPeriod: uniqueIndex("FinancialForecastValue_reportId_field_targetPeriod_key").on(
+      t.reportId,
+      t.field,
+      t.targetPeriod
+    ),
+    orgField: index("FinancialForecastValue_organizationId_field_idx").on(t.organizationId, t.field),
+  })
+);
+
+// Sales-funnel snapshot: one row per (period, stage). Velocity through the
+// funnel is computed by comparing consecutive months' stage counts, so no
+// opportunity-level data is required — just the monthly stage totals from
+// the board pack. stage: see lib/funnel FUNNEL_STAGES.
+export const funnelSnapshots = board.table(
+  "FunnelSnapshot",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    reportId: text("reportId").references(() => financialReports.id, { onDelete: "set null" }),
+    period: ts("period").notNull(),
+    stage: text("stage").notNull(),
+    count: integer("count").notNull().default(0),
+    value: integer("value").notNull().default(0), // pipeline $ in the stage, if known
+  },
+  (t) => ({
+    orgPeriodStage: uniqueIndex("FunnelSnapshot_organizationId_period_stage_key").on(t.organizationId, t.period, t.stage),
+  })
+);
+
+export const financialReportsRelations = relations(financialReports, ({ one, many }) => ({
+  organization: one(organizations, { fields: [financialReports.organizationId], references: [organizations.id] }),
+  sourceDocument: one(financialDocuments, {
+    fields: [financialReports.sourceDocumentId],
+    references: [financialDocuments.id],
+  }),
+  createdBy: one(users, { fields: [financialReports.createdById], references: [users.id] }),
+  forecastValues: many(financialForecastValues),
+}));
+
+export const financialForecastValuesRelations = relations(financialForecastValues, ({ one }) => ({
+  report: one(financialReports, { fields: [financialForecastValues.reportId], references: [financialReports.id] }),
+}));
+
+export const funnelSnapshotsRelations = relations(funnelSnapshots, ({ one }) => ({
+  organization: one(organizations, { fields: [funnelSnapshots.organizationId], references: [organizations.id] }),
+  report: one(financialReports, { fields: [funnelSnapshots.reportId], references: [financialReports.id] }),
+}));
+
+export type FinancialReport = typeof financialReports.$inferSelect;
+export type FinancialForecastValue = typeof financialForecastValues.$inferSelect;
+export type FunnelSnapshot = typeof funnelSnapshots.$inferSelect;
+
 // -------- AI chat (per-org assistant) --------
 
 export const chatThreads = board.table("ChatThread", {

@@ -11,6 +11,7 @@
 
 import * as XLSX from "xlsx";
 import type { ParsedImport, ParsedRow, SnapshotField } from "@/lib/snapshot-fields";
+import { FUNNEL_STAGES, type FunnelStage, type ParsedFunnel, type ParsedFunnelRow } from "@/lib/funnel";
 
 export type { ParsedImport, ParsedRow, SnapshotField } from "@/lib/snapshot-fields";
 export { SNAPSHOT_FIELDS, SNAPSHOT_FIELD_LABELS } from "@/lib/snapshot-fields";
@@ -179,6 +180,95 @@ function transpose(grid: Cell[][]): Cell[][] {
   const out: Cell[][] = [];
   for (let c = 0; c < w; c++) out.push(grid.map((r) => r[c]));
   return out;
+}
+
+// ── Funnel parsing ──────────────────────────────────────────────────────────
+// Same grid strategy as the metrics parser, but the row labels are matched
+// against sales-funnel stage synonyms instead of financial metrics. Order
+// matters: "closed won/lost" before the loose single-word patterns.
+
+const FUNNEL_MATCHERS: { stage: FunnelStage; re: RegExp }[] = [
+  { stage: "CLOSED_WON", re: /closed[\s-]*won|\bwins?\b|\bwon\b|new (customers?|logos?)|signed/i },
+  { stage: "CLOSED_LOST", re: /closed[\s-]*lost|\blost\b|disqualified|no.?decision/i },
+  { stage: "NEGOTIATION", re: /negotiat|contract(ing)?|\blegal\b|procurement|verbal|commit/i },
+  { stage: "PROPOSAL", re: /proposal|quot(e|ation)|\bpilot\b|\bpoc\b|proof of concept|\btrial\b|evaluat/i },
+  { stage: "QUALIFIED", re: /qualified|\bsql\b|\bsqo\b|discovery|opportunit|demo/i },
+  { stage: "LEAD", re: /\bleads?\b|\bmql\b|prospect|inbound|top of funnel|tofu|enquir|inquir/i },
+];
+
+function matchStage(label: string): FunnelStage | null {
+  for (const { stage, re } of FUNNEL_MATCHERS) if (re.test(label)) return stage;
+  return null;
+}
+
+function parseFunnelGrid(grid: Cell[][], sheet: string): ParsedFunnel | null {
+  let best: { rowIdx: number; cols: { col: number; month: string }[] } | null = null;
+  for (let r = 0; r < Math.min(grid.length, 30); r++) {
+    const row = grid[r] ?? [];
+    const cols: { col: number; month: string }[] = [];
+    for (let c = 0; c < row.length; c++) {
+      const month = cellToMonth(row[c]);
+      if (month) cols.push({ col: c, month });
+    }
+    if (cols.length >= 2 && (!best || cols.length > best.cols.length)) best = { rowIdx: r, cols };
+  }
+  if (!best) return null;
+
+  const rows: ParsedFunnelRow[] = [];
+  const seen = new Set<FunnelStage>();
+  for (let r = best.rowIdx + 1; r < grid.length; r++) {
+    const row = grid[r] ?? [];
+    let label = "";
+    for (let c = 0; c < best.cols[0].col; c++) {
+      const v = row[c];
+      if (v != null && String(v).trim() !== "") {
+        label = String(v).trim();
+        break;
+      }
+    }
+    if (!label) continue;
+    const stage = matchStage(label);
+    if (!stage || seen.has(stage)) continue;
+    const values = best.cols.map(({ col }) => {
+      const v = cellToNumber(row[col]);
+      return v == null ? null : Math.round(v);
+    });
+    if (values.every((v) => v == null)) continue;
+    seen.add(stage);
+    rows.push({ stage, sourceLabel: label, values });
+  }
+  // A believable funnel has at least two distinct stages.
+  if (rows.length < 2) return null;
+  return { sheet, months: best.cols.map((c) => c.month), rows };
+}
+
+// Scan every sheet (both orientations) for funnel-stage rows; the sheet with
+// the most stages × months wins. Sheets whose name suggests a funnel get a
+// scoring boost so a "Pipeline" tab beats stray "won/lost" labels elsewhere.
+export function parseFunnelWorkbook(buf: Buffer | ArrayBuffer): ParsedFunnel | null {
+  const wb = XLSX.read(buf, { type: buf instanceof ArrayBuffer ? "array" : "buffer", cellDates: true });
+  const candidates: { parsed: ParsedFunnel; score: number }[] = [];
+
+  for (const name of wb.SheetNames) {
+    const ws = wb.Sheets[name];
+    if (!ws) continue;
+    const grid = XLSX.utils.sheet_to_json<Cell[]>(ws, { header: 1, raw: true, defval: null }) as Cell[][];
+    if (!grid.length) continue;
+    const boost = /funnel|pipeline|sales|gtm|crm/i.test(name) ? 2 : 1;
+    for (const g of [grid, transpose(grid)]) {
+      const parsed = parseFunnelGrid(g, name);
+      if (parsed) candidates.push({ parsed, score: parsed.rows.length * parsed.months.length * boost });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].parsed;
+}
+
+// Sort helper: stages in canonical funnel order for display.
+export function funnelStageOrder(stage: FunnelStage): number {
+  return FUNNEL_STAGES.indexOf(stage);
 }
 
 export function parseFinancialWorkbook(buf: Buffer | ArrayBuffer): ParsedImport {

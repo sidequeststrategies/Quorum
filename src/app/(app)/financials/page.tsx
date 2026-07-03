@@ -1,17 +1,19 @@
 import Link from "next/link";
-import { asc, count, desc, eq, inArray } from "drizzle-orm";
-import { FileText, LineChart, Plus, Trash2, Upload } from "lucide-react";
+import { count, desc, eq, inArray } from "drizzle-orm";
+import { CalendarDays, FileSpreadsheet, FileText, LineChart, Plus, Trash2, Upload } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/db";
-import { financialDocuments, financialPlans, financialScenarios, financialSnapshots } from "@/db/schema";
+import { financialDocuments, financialPlans, financialScenarios } from "@/db/schema";
 import { canManage, requireMembership } from "@/lib/session";
 import { financialSummaryLines, fmtUSD } from "@/lib/finance";
 import { formatDateOnly } from "@/lib/utils";
 import { CashChart } from "@/components/cash-chart";
+import { DeltaStat } from "@/components/delta";
 import { deleteSnapshot, deleteFinancialDocument } from "@/lib/actions/financials-data";
 import { FINANCIAL_DOC_LABELS } from "@/lib/financial-docs";
+import { getFinancialOverview, periodToString, fmtPeriodShort } from "@/lib/financial-report";
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const fmtPeriod = (d: Date) => `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
@@ -21,11 +23,12 @@ export default async function FinancialsPage() {
   const { membership } = await requireMembership();
   const orgId = membership.organizationId;
 
-  const [plans, snapshots, docs] = await Promise.all([
+  const [plans, overview, docs] = await Promise.all([
     db.select().from(financialPlans).where(eq(financialPlans.organizationId, orgId)).orderBy(desc(financialPlans.updatedAt)),
-    db.select().from(financialSnapshots).where(eq(financialSnapshots.organizationId, orgId)).orderBy(asc(financialSnapshots.period)),
+    getFinancialOverview(orgId),
     db.select().from(financialDocuments).where(eq(financialDocuments.organizationId, orgId)).orderBy(desc(financialDocuments.period), desc(financialDocuments.createdAt)),
   ]);
+  const snapshots = overview.snapshots;
 
   // Replace per-plan scenario count with a single grouped query.
   const planIds = plans.map((p) => p.id);
@@ -58,7 +61,7 @@ export default async function FinancialsPage() {
           </p>
         </div>
         {isManager ? (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline">
               <Link href="/financials/uploads/new">
                 <Upload className="mr-1 h-4 w-4" />
@@ -78,24 +81,88 @@ export default async function FinancialsPage() {
               </Link>
             </Button>
             <Button asChild>
-              <Link href="/financials/import">
-                <Upload className="mr-1 h-4 w-4" />
-                Import from Excel
+              <Link href="/financials/reports/new">
+                <FileSpreadsheet className="mr-1 h-4 w-4" />
+                New monthly report
               </Link>
             </Button>
           </div>
         ) : null}
       </div>
 
-      {/* Latest snapshot highlight */}
+      {/* Delta dashboard: latest month vs prior */}
       {latest ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label={`Cash · ${fmtPeriod(latest.period)}`} value={fmtUSD(latest.cash, { compact: true })} />
-          <Stat label="ARR" value={fmtUSD(latest.arr, { compact: true })} />
-          <Stat label="Net burn / month" value={fmtUSD(latest.burn, { compact: true })} accent={latest.burn > 0 ? "text-rose-600" : "text-emerald-600"} />
-          <Stat label="Headcount" value={String(latest.headcount)} />
-        </div>
+        <section>
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-xl font-semibold tracking-tight">
+              {fmtPeriod(latest.period)} vs {overview.previous ? fmtPeriod(overview.previous.period) : "prior month"}
+            </h2>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {overview.deltas.map((d) => (
+              <DeltaStat key={d.key} d={d} sinceLabel="vs prior month" noPriorLabel="no prior month" />
+            ))}
+          </div>
+          {overview.callouts.length > 0 ? (
+            <Card className="mt-4 border-l-4 border-l-brand-teal">
+              <CardContent className="p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Delta callouts</p>
+                <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-sm">
+                  {overview.callouts.map((l, i) => (
+                    <li key={i}>{l}</li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          ) : null}
+        </section>
       ) : null}
+
+      {/* Monthly reports */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Monthly reports</CardTitle>
+          <CardDescription>
+            One report per calendar month, generated from that month's uploaded board financial pack.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {overview.reports.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No monthly reports yet.{" "}
+              {isManager ? (
+                <>
+                  <Link href="/financials/reports/new" className="underline underline-offset-2">
+                    Upload the first board financial pack
+                  </Link>{" "}
+                  to generate one.
+                </>
+              ) : (
+                "They'll appear here once the first pack is uploaded."
+              )}
+            </p>
+          ) : (
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {overview.reports.map((r) => (
+                <li key={r.id}>
+                  <Link
+                    href={`/financials/reports/${periodToString(r.period)}`}
+                    className="flex items-start gap-3 rounded-md border p-4 hover:bg-accent"
+                  >
+                    <CalendarDays className="mt-0.5 h-5 w-5 text-primary" />
+                    <div>
+                      <div className="font-medium">{fmtPeriodShort(r.period)}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {r.sourceDocument ? r.sourceDocument.filename : "no source file"} · created {formatDateOnly(r.createdAt)}
+                      </div>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Auto-computed report summary */}
       {latest ? <AutoSummary snapshots={snapshots} /> : null}
@@ -274,7 +341,7 @@ export default async function FinancialsPage() {
 
 // Plain-English summary a director can read in ten seconds — computed, so
 // it's always consistent with the numbers above it.
-function AutoSummary({ snapshots }: { snapshots: (typeof financialSnapshots.$inferSelect)[] }) {
+function AutoSummary({ snapshots }: { snapshots: import("@/db/schema").FinancialSnapshot[] }) {
   const lines = financialSummaryLines(snapshots);
   if (lines.length === 0) return null;
 
@@ -287,17 +354,6 @@ function AutoSummary({ snapshots }: { snapshots: (typeof financialSnapshots.$inf
             <li key={i}>{l}</li>
           ))}
         </ul>
-      </CardContent>
-    </Card>
-  );
-}
-
-function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
-        <div className={`mt-1 text-2xl font-bold ${accent ?? ""}`}>{value}</div>
       </CardContent>
     </Card>
   );
