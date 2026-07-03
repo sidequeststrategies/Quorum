@@ -38,7 +38,9 @@ export async function getSupabaseServer() {
 // wrong host and the PKCE exchange fails). Set APP_ORIGIN to pin it:
 //   APP_ORIGIN=https://assetcool.sidequeststrategies.com
 export async function getRequestOrigin(): Promise<string> {
-  const explicit = process.env.APP_ORIGIN;
+  // trim() strips whitespace AND stray BOM characters that CLI-piped env
+  // values can carry — a BOM in a redirect URL makes Google's OAuth 500.
+  const explicit = process.env.APP_ORIGIN?.trim();
   if (explicit) return explicit.replace(/\/+$/, "");
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
