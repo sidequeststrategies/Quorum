@@ -12,7 +12,7 @@
     "enteredFunnel": "2026-03-01",
     "stageEntered": "2026-06-10",
     "closeQuarter": 1,
-    "product": "—",
+    "product": "SE02 - Retrofit Capacity",
     "scope": "—",
     "contact": {
       "name": "—",
@@ -20,7 +20,8 @@
     },
     "hubspotUrl": "#",
     "notes": "Fixture deal for local look-and-feel review.",
-    "probability": 0.6
+    "probability": 0.6,
+    "isCoating": true
   },
   {
     "id": "F-2",
@@ -35,7 +36,7 @@
     "enteredFunnel": "2026-05-15",
     "stageEntered": "2026-06-25",
     "closeQuarter": 2,
-    "product": "—",
+    "product": "SE02 - Retrofit Capacity",
     "scope": "—",
     "contact": {
       "name": "—",
@@ -43,7 +44,8 @@
     },
     "hubspotUrl": "#",
     "notes": "",
-    "probability": 0.3
+    "probability": 0.3,
+    "isCoating": true
   },
   {
     "id": "F-3",
@@ -58,7 +60,7 @@
     "enteredFunnel": "2026-06-20",
     "stageEntered": "2026-06-20",
     "closeQuarter": 3,
-    "product": "—",
+    "product": "SE01 - New Lines Capacity",
     "scope": "—",
     "contact": {
       "name": "—",
@@ -66,7 +68,8 @@
     },
     "hubspotUrl": "#",
     "notes": "",
-    "probability": 0.2
+    "probability": 0.2,
+    "isCoating": true
   },
   {
     "id": "F-4",
@@ -81,7 +84,7 @@
     "enteredFunnel": "2026-01-10",
     "stageEntered": "2026-04-02",
     "closeQuarter": 0,
-    "product": "—",
+    "product": "Robotic Maintenance",
     "scope": "—",
     "contact": {
       "name": "—",
@@ -89,6 +92,7 @@
     },
     "hubspotUrl": "#",
     "notes": "Aged deal — exercises the wilted flower visual and stalled momentum row.",
-    "probability": 0.4
+    "probability": 0.4,
+    "isCoating": false
   }
 ]

@@ -294,6 +294,16 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);display
 .report-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
 .btn.small{padding:5px 12px;font-size:11px}
 
+/* ---------- product filter toggle ---------- */
+.product-toggle{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:16px}
+.product-toggle .seg{
+  background:transparent;border:none;color:var(--muted);font-family:inherit;font-weight:700;
+  font-size:12px;letter-spacing:.06em;padding:8px 18px;cursor:pointer;transition:background .15s;
+}
+.product-toggle .seg + .seg{border-left:1px solid var(--line)}
+.product-toggle .seg.active{background:rgba(35,183,207,.15);color:var(--cyan)}
+[data-theme="light"] .product-toggle .seg.active{background:rgba(0,139,202,.12);color:var(--blue)}
+
 /* ---------- collapsible garden ---------- */
 h2.collapsible{cursor:pointer;user-select:none}
 h2.collapsible .chev{display:inline-block;transition:transform .15s;font-size:11px}
@@ -308,7 +318,7 @@ h2.collapsible .roll-summary{font-weight:600;letter-spacing:0;text-transform:non
   .wrap{max-width:none;padding:0}
   .panel,.kpi,.stage-row,.deal-card,.region-card,.vel-row,.legend,.forecast-panel{box-shadow:none;border-color:#ccc;background:#fff;color:#111}
   /* keep it to the essentials */
-  #gardenSection,#controlsSection,.click-hint,.section-note,.report-actions,.demo-badge,.modal-overlay{display:none !important}
+  #gardenSection,#controlsSection,.click-hint,.section-note,.report-actions,.demo-badge,.modal-overlay,.product-toggle{display:none !important}
   header{padding:8px 0;margin-bottom:10px}
   h2{margin:14px 0 6px;page-break-after:avoid}
   .kpis{gap:8px;margin-top:6px}
@@ -360,6 +370,7 @@ document.documentElement.dataset.theme = (function(){
   <div class="report-meta">
     <div class="report-title">Pipeline &amp; Financial Board Report</div>
     <div class="report-date" id="reportDate"></div>
+    <div class="report-date" id="filterNote" style="font-weight:700"></div>
     <div class="demo-badge" id="demoBadge"><span class="dot"></span> DEMO DATA — NOT LIVE</div>
     <div class="report-actions">
       <button class="btn small" id="themeBtn" type="button" aria-pressed="false">☀ Light mode</button>
@@ -367,6 +378,13 @@ document.documentElement.dataset.theme = (function(){
     </div>
   </div>
 </header>
+
+<!-- PRODUCT FILTER -->
+<div class="product-toggle" id="productToggle" role="group" aria-label="Filter the report by product family">
+  <button class="seg active" type="button" data-filter="all">All products</button>
+  <button class="seg" type="button" data-filter="coating">Coating</button>
+  <button class="seg" type="button" data-filter="other">Other products</button>
+</div>
 
 <!-- KPIs -->
 <div class="kpis" id="kpis"></div>
@@ -513,13 +531,21 @@ const FIN_DEFAULTS = {
 const state = {
   weights: Object.fromEntries(STAGES.map(s=>[s.key, s.weight])),
   fin: Object.fromEntries(Object.entries(FIN_DEFAULTS).map(([k,c])=>[k, c.value])),
+  productFilter: 'all', // 'all' | 'coating' | 'other' — drives the deals() view
 };
 
 /* =====================================================================
    HELPERS
    ===================================================================== */
 const $ = sel => document.querySelector(sel);
-const deals = () => window.PIPELINE.deals;
+// Every render reads deals() — filtering here re-scopes the whole report
+// (KPIs, funnel, garden, momentum, geography, projection) in one place.
+const deals = () => {
+  const all = window.PIPELINE.deals;
+  if (state.productFilter === 'coating') return all.filter(d => d.isCoating);
+  if (state.productFilter === 'other') return all.filter(d => !d.isCoating);
+  return all;
+};
 const stageOf = d => STAGES.find(s=>s.key===d.stage);
 const probOf = d => state.weights[d.stage]/100;
 
@@ -1069,16 +1095,23 @@ function initChrome(){
 
   $('#printBtn').addEventListener('click', () => window.print());
 
+  // Product filter: re-scopes every section via the deals() accessor.
+  const segs = [...document.querySelectorAll('#productToggle .seg')];
+  segs.forEach((b) => b.addEventListener('click', () => {
+    if (state.productFilter === b.dataset.filter) return;
+    state.productFilter = b.dataset.filter;
+    segs.forEach((x) => x.classList.toggle('active', x === b));
+    $('#filterNote').textContent =
+      state.productFilter === 'coating' ? 'Coating products only' :
+      state.productFilter === 'other' ? 'Non-coating products only' : '';
+    rerenderAll();
+  }));
+
   // Garden roll-up: collapsed by default, remembered per browser. The
   // summary line keeps the signal visible while rolled up.
   const section = $('#gardenSection');
   const toggle = $('#gardenToggle');
-  const ds = deals();
-  const wilted = ds.filter(d => ageBucket(d) === 'wilted').length;
-  const aging = ds.filter(d => ageBucket(d) === 'aging').length;
-  $('#gardenSummary').textContent =
-    ds.length === 0 ? '' :
-    `· ${ds.length} deals` + (wilted ? ` · ${wilted} wilted` : '') + (aging ? ` · ${aging} aging` : '') + ' — click to expand';
+  updateGardenSummary();
   try { if (localStorage.getItem('pr-garden') === 'open') section.classList.remove('collapsed'); } catch {}
   const syncGarden = () => {
     const open = !section.classList.contains('collapsed');
@@ -1093,6 +1126,22 @@ function initChrome(){
   toggle.addEventListener('click', flip);
   toggle.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
   syncGarden();
+}
+
+function updateGardenSummary(){
+  const ds = deals();
+  const wilted = ds.filter(d => ageBucket(d) === 'wilted').length;
+  const aging = ds.filter(d => ageBucket(d) === 'aging').length;
+  $('#gardenSummary').textContent =
+    ds.length === 0 ? '· no deals in this view' :
+    `· ${ds.length} deals` + (wilted ? ` · ${wilted} wilted` : '') + (aging ? ` · ${aging} aging` : '') + ' — click to expand';
+}
+
+// Full re-render after a change of scope (product filter). Handlers inside
+// each section re-bind as part of their render.
+function rerenderAll(){
+  renderKPIs(); renderFunnel(); renderGarden(); renderVelocity(); renderRegions(); renderWeightedTotal(); renderForecast();
+  updateGardenSummary();
 }
 init();
 </script>

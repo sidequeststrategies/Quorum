@@ -360,6 +360,7 @@ export type PipelineReportDeal = {
   stageEntered: string; // ISO date
   closeQuarter: number; // 0 = current quarter
   probability: number | null; // per-deal close probability, 0–1 (stage default unless overridden in HubSpot)
+  isCoating: boolean; // coating SKU (SE/AA product_offering) vs everything else
   product: string;
   scope: string;
   contact: { name: string; title: string };
@@ -457,6 +458,34 @@ export function customerFromDealName(name: string): string {
   return head || trimmed || "—";
 }
 
+// Product classification from AssetCool's custom deal properties.
+// `product_offering` (multi-select, semicolon-separated internal values) is
+// set on every open deal; the SE/AA codes are the coating SKUs, everything
+// else (Robotic Maintenance, machine sales, licenses) is "other".
+// `deal_category` (Retrofit/In-factory Coating, Partnership) backs it up on
+// deals where the offering is missing.
+const OFFERING_LABELS: Record<string, string> = {
+  capacity: "SE01 - New Lines Capacity",
+  "SE02 - Retrofit Capacity": "SE02 - Retrofit Capacity",
+  noise: "SE05 - Retrofit Noise",
+  ice: "SE04 - Ice Mitigation",
+  high_temperature: "AA03 - High Temperature Retrofit",
+  other: "SE05-F - Factory Noise Mitigation",
+  "Robotic Maintenance": "Robotic Maintenance",
+};
+const COATING_OFFERINGS = new Set(["capacity", "SE02 - Retrofit Capacity", "noise", "ice", "high_temperature", "other"]);
+
+export function classifyProduct(
+  offeringRaw: string | null | undefined,
+  categoryRaw: string | null | undefined
+): { isCoating: boolean; product: string } {
+  const offerings = (offeringRaw ?? "").split(";").map((s) => s.trim()).filter(Boolean);
+  const category = (categoryRaw ?? "").trim();
+  const isCoating = offerings.some((o) => COATING_OFFERINGS.has(o)) || /coating/i.test(category);
+  const product = offerings.map((o) => OFFERING_LABELS[o] ?? o).join(", ") || category || "—";
+  return { isCoating, product };
+}
+
 // Quarter offset of a close date vs now: 0 = current quarter, clamped to the
 // report's 8-quarter horizon. Missing/past dates clamp to the near edge.
 export function quarterOffset(closeDate: Date | null, now: Date): number {
@@ -518,6 +547,8 @@ export async function fetchPipelineReportDeals(now = new Date()): Promise<Pipeli
     "hs_priority",
     "hs_deal_stage_probability",
     "hs_v2_date_entered_current_stage",
+    "product_offering",
+    "deal_category",
   ].join(",");
 
   const raw: RawDeal[] = [];
@@ -588,7 +619,7 @@ export async function fetchPipelineReportDeals(now = new Date()): Promise<Pipeli
         p.hs_deal_stage_probability != null && isFinite(Number(p.hs_deal_stage_probability))
           ? Number(p.hs_deal_stage_probability)
           : null,
-      product: "—",
+      ...classifyProduct(p.product_offering, p.deal_category),
       scope: "—",
       contact: { name: "—", title: "" },
       hubspotUrl: `https://${uiDomain}/contacts/${portalId}/record/0-3/${r.id}`,

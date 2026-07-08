@@ -181,3 +181,22 @@ if (failures) {
   console.error(`\n${failures} assertion(s) failed`);
   process.exit(1);
 }
+
+// ── classifyProduct (coating vs other toggle) ───────────────────────────────
+import { classifyProduct } from "../src/lib/hubspot";
+expect("SE02 is coating", classifyProduct("SE02 - Retrofit Capacity", null),
+  { isCoating: true, product: "SE02 - Retrofit Capacity" });
+expect("internal value mapped to label", classifyProduct("capacity", null),
+  { isCoating: true, product: "SE01 - New Lines Capacity" });
+expect("multi-select mixed is coating", classifyProduct("Robotic Maintenance;noise", null),
+  { isCoating: true, product: "Robotic Maintenance, SE05 - Retrofit Noise" });
+expect("robotic only is other", classifyProduct("Robotic Maintenance", null),
+  { isCoating: false, product: "Robotic Maintenance" });
+expect("category backstop", classifyProduct(null, "Retrofit Coating"),
+  { isCoating: true, product: "Retrofit Coating" });
+expect("nothing set", classifyProduct(null, null), { isCoating: false, product: "—" });
+
+if (failures) {
+  console.error(`\n${failures} assertion(s) failed`);
+  process.exit(1);
+}
