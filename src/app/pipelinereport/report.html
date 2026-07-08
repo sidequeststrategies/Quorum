@@ -404,11 +404,11 @@ document.documentElement.dataset.theme = (function(){
 <!-- WEIGHTS + ASSUMPTIONS -->
 <section id="controlsSection">
 <h2>Scenario Controls</h2>
-<p class="section-note">Adjust stage weightings and financial assumptions — every chart and KPI on this page recalculates live. In production, default weightings sync from HubSpot deal-stage probabilities; the values below are demo defaults with the rationale we would present to the board.</p>
+<p class="section-note">Adjust stage weightings and financial assumptions — every chart and KPI on this page recalculates live. Default weightings sync from the HubSpot pipeline's configured stage probabilities, so the weighted pipeline here opens on the same number HubSpot reports.</p>
 <div class="two-col">
   <div class="panel">
     <h3>Stage Weightings</h3>
-    <p class="hint">Probability a deal in this stage ultimately closes, based on (demo) historical conversion. Drag to stress-test the pipeline.</p>
+    <p class="hint">Probability a deal in this stage ultimately closes — synced from HubSpot's pipeline settings. Drag to stress-test the pipeline.</p>
     <div id="weightSliders"></div>
     <div class="weighted-total"><span class="lbl">Probability-weighted pipeline</span><span class="amt" id="wtdTotal"></span></div>
     <div style="margin-top:14px"><button class="btn" id="resetWeights">Reset to HubSpot defaults</button></div>
@@ -454,27 +454,42 @@ document.documentElement.dataset.theme = (function(){
    probabilities via the MCP sync. `benchmarkDays` is the historical
    median time a deal spends in the stage (used for momentum).
    ===================================================================== */
+// Weights below mirror the HubSpot pipeline's configured stage probabilities
+// (fallback only — live values are injected via window.PIPELINE.stageWeights
+// and override these, so the default weighted pipeline matches HubSpot).
 const STAGES = [
   { key:'appointmentscheduled', name:'Qualified Lead',            weight:10, benchmarkDays:30,
     why:'Named utility contact with a live ampacity or uprating need. Weighted lightly until discovery confirms budget, timeline and target circuits.' },
-  { key:'qualifiedtobuy',       name:'Discovery',                 weight:25, benchmarkDays:45,
-    why:'Requirements and candidate line segments being scoped with the customer\'s engineering team. Historically about a quarter of these progress to a win.' },
-  { key:'presentationscheduled',name:'Technical Due Diligence',   weight:45, benchmarkDays:60,
+  { key:'qualifiedtobuy',       name:'Discovery',                 weight:20, benchmarkDays:45,
+    why:'Requirements and candidate line segments being scoped with the customer\'s engineering team.' },
+  { key:'presentationscheduled',name:'Technical Due Diligence',   weight:30, benchmarkDays:60,
     why:'Coating performance, application method and network standards under formal engineering review — the customer is committing real technical time.' },
-  { key:'decisionmakerboughtin',name:'Proposal',                  weight:60, benchmarkDays:45,
+  { key:'decisionmakerboughtin',name:'Proposal',                  weight:40, benchmarkDays:45,
     why:'Commercial proposal in front of the economic buyer; scope and pricing on the table with the decision-maker bought in.' },
-  { key:'contractsent',         name:'Negotiation',               weight:75, benchmarkDays:45,
+  { key:'contractsent',         name:'Negotiation',               weight:60, benchmarkDays:45,
     why:'Contract in redline. Losses at this stage are almost always budget-cycle timing rather than competitive displacement.' },
-  { key:'5131910380',           name:'Procurement / Contracting', weight:90, benchmarkDays:30,
-    why:'Award made; procurement and legal formalities remain. The small discount from 100% covers late procurement surprises.' },
+  { key:'5131910380',           name:'Procurement / Contracting', weight:80, benchmarkDays:30,
+    why:'Award made; procurement and legal formalities remain. The discount from 100% covers late procurement surprises.' },
 ];
 
 /* Live pipeline data injected by src/app/pipelinereport/route.ts.
    Deal shape: id, name, customer, region, country, flag, value (GBP, home
-   currency), stage (HubSpot stage id from STAGES), priority, enteredFunnel,
-   stageEntered (ISO dates), closeQuarter, product, scope, contact{name,title},
-   hubspotUrl, notes. source !== 'demo' hides the demo badge. */
+   currency), stage (HubSpot stage id from STAGES), probability (0–1),
+   priority, enteredFunnel, stageEntered (ISO dates), closeQuarter, product,
+   scope, contact{name,title}, hubspotUrl, notes. source !== 'demo' hides the
+   demo badge. stageWeights ({stageId: percent}) carries the pipeline's
+   configured close probabilities. */
 window.PIPELINE = /*__PIPELINE_DATA__*/{ source:'unconfigured', deals:[] };
+
+// Default weightings come from HubSpot's pipeline configuration so the
+// weighted pipeline here matches HubSpot's own number. Sliders still
+// stress-test from that baseline; "Reset" returns to these values.
+if (window.PIPELINE.stageWeights) {
+  for (const s of STAGES) {
+    const w = window.PIPELINE.stageWeights[s.key];
+    if (typeof w === 'number' && isFinite(w)) s.weight = Math.max(0, Math.min(100, Math.round(w)));
+  }
+}
 
 /* =====================================================================
    CONFIG & STATE

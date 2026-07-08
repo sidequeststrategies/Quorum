@@ -144,3 +144,23 @@ if (failures) {
   console.error(`\n${failures} assertion(s) failed`);
   process.exit(1);
 }
+
+// ── deriveStageWeights (pipeline report weight fallback) ────────────────────
+import { deriveStageWeights } from "../src/lib/hubspot";
+const dw = deriveStageWeights([
+  // 3 deals at the stage default, 1 manual override — mode must win.
+  { stage: "appointmentscheduled", probability: 0.1 },
+  { stage: "appointmentscheduled", probability: 0.1 },
+  { stage: "appointmentscheduled", probability: 0.1 },
+  { stage: "appointmentscheduled", probability: 0.2 },
+  { stage: "contractsent", probability: 0.6 },
+  { stage: "qualifiedtobuy", probability: null }, // no probability → stage omitted
+]);
+expect("mode beats override", dw["appointmentscheduled"], 10);
+expect("single-deal stage", dw["contractsent"], 60);
+expect("null probabilities omitted", "qualifiedtobuy" in dw, false);
+
+if (failures) {
+  console.error(`\n${failures} assertion(s) failed`);
+  process.exit(1);
+}

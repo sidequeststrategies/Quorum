@@ -8,7 +8,7 @@ import path from "node:path";
 import { redirect } from "next/navigation";
 import { getCurrentMembership } from "@/lib/session";
 import { pipelineReportGuest } from "@/lib/access";
-import { fetchPipelineReportDeals, hubspotConfigured, type PipelineReportDeal } from "@/lib/hubspot";
+import { fetchPipelineReport, hubspotConfigured, type PipelineReportDeal } from "@/lib/hubspot";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export async function GET() {
   const { user, membership } = await getCurrentMembership(); // redirects signed-out visitors to /login
   if (!membership && !pipelineReportGuest(user.email)) redirect("/onboarding");
 
-  let payload: { source: string; deals: PipelineReportDeal[] };
+  let payload: { source: string; deals: PipelineReportDeal[]; stageWeights?: Record<string, number> };
   if (!hubspotConfigured()) {
     // Look-and-feel work without a token: point PIPELINE_REPORT_FIXTURE at a
     // JSON deal array (e.g. scripts/fixtures/pipeline-report-fixture.json).
@@ -31,7 +31,8 @@ export async function GET() {
       : { source: "unconfigured", deals: [] };
   } else {
     try {
-      payload = { source: "hubspot", deals: await fetchPipelineReportDeals() };
+      const { deals, stageWeights } = await fetchPipelineReport();
+      payload = { source: "hubspot", deals, stageWeights };
     } catch (e) {
       console.error("pipeline report: HubSpot fetch failed:", (e as Error).message);
       payload = { source: "error", deals: [] };
