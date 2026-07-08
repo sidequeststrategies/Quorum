@@ -5,6 +5,7 @@ import { brand } from "@/lib/brand";
 export const metadata: Metadata = {
   title: `${brand.full} — Board reporting for startups`,
   description: brand.tagline,
+  icons: { icon: "/favicon.svg" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
