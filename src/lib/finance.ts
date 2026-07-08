@@ -119,16 +119,22 @@ export function projectScenario(
   };
 }
 
+// Reporting currency. Defaults to USD; per-client deployments set
+// NEXT_PUBLIC_BRAND_CURRENCY (e.g. "GBP" for AssetCool) — NEXT_PUBLIC_ so the
+// value is inlined for client components too. The function keeps its
+// historical name; every caller means "format money".
+const BRAND_CURRENCY = process.env.NEXT_PUBLIC_BRAND_CURRENCY || "USD";
+
 export function fmtUSD(n: number, opts?: { compact?: boolean }) {
   if (opts?.compact) {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "USD",
+      currency: BRAND_CURRENCY,
       notation: "compact",
       maximumFractionDigits: 1,
     }).format(n);
   }
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: BRAND_CURRENCY, maximumFractionDigits: 0 }).format(n);
 }
 
 // Plain-English summary lines from a snapshot series (latest month vs prior).

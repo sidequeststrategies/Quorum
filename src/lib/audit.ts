@@ -10,7 +10,8 @@ export type AuditAction =
   | "REPORT_CREATE"
   | "REPORT_DELETE"
   | "DOC_UPLOAD"
-  | "DOC_DELETE";
+  | "DOC_DELETE"
+  | "HUBSPOT_SYNC";
 
 export async function logAccess(args: {
   organizationId: string;

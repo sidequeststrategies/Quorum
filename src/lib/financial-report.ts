@@ -18,11 +18,13 @@ import {
   financialScenarios,
   financialSnapshots,
   funnelSnapshots,
+  funnelStageMetrics,
   type Customer,
   type CustomerUpdate,
   type FinancialDocument,
   type FinancialReport,
   type FinancialSnapshot,
+  type FunnelStageMetric,
 } from "@/db/schema";
 import type { MetricDelta } from "@/lib/meeting-compare";
 import { fmtUSD } from "@/lib/finance";
@@ -178,6 +180,22 @@ export function buildFunnelSeries(rows: { period: Date; stage: string; count: nu
   return { months, countsByStage, valuesByStage, velocity: computeFunnelVelocity(months, countsByStage), openPipelineValue };
 }
 
+// ── Funnel meta (live-sync provenance) ─────────────────────────────────────
+
+// Where the funnel numbers came from and what HubSpot's stage timestamps say
+// about actual dwell time. live=true when any snapshot row was written by the
+// HubSpot sync rather than an Excel import.
+export type FunnelMeta = {
+  live: boolean;
+  syncedAt: Date | null;
+  stageMetrics: FunnelStageMetric[];
+};
+
+function buildFunnelMeta(rows: { source: string }[], metrics: FunnelStageMetric[]): FunnelMeta {
+  const syncedAt = metrics.reduce<Date | null>((acc, m) => (!acc || m.syncedAt > acc ? m.syncedAt : acc), null);
+  return { live: rows.some((r) => r.source === "hubspot"), syncedAt, stageMetrics: metrics };
+}
+
 // ── Overview (delta dashboard) ──────────────────────────────────────────────
 
 export type FinancialOverview = {
@@ -186,12 +204,13 @@ export type FinancialOverview = {
   deltas: MetricDelta[];
   callouts: string[];
   funnel: FunnelSeries;
+  funnelMeta: FunnelMeta;
   latest: FinancialSnapshot | null;
   previous: FinancialSnapshot | null;
 };
 
 export async function getFinancialOverview(orgId: string): Promise<FinancialOverview> {
-  const [snapshotRows, reportRows, funnelRows] = await Promise.all([
+  const [snapshotRows, reportRows, funnelRows, metricRows] = await Promise.all([
     db.select().from(financialSnapshots).where(eq(financialSnapshots.organizationId, orgId)).orderBy(asc(financialSnapshots.period)),
     db
       .select()
@@ -200,6 +219,7 @@ export async function getFinancialOverview(orgId: string): Promise<FinancialOver
       .where(eq(financialReports.organizationId, orgId))
       .orderBy(desc(financialReports.period)),
     db.select().from(funnelSnapshots).where(eq(funnelSnapshots.organizationId, orgId)).orderBy(asc(funnelSnapshots.period)),
+    db.select().from(funnelStageMetrics).where(eq(funnelStageMetrics.organizationId, orgId)),
   ]);
 
   const snapshots = dedupeByMonth(snapshotRows);
@@ -219,6 +239,7 @@ export async function getFinancialOverview(orgId: string): Promise<FinancialOver
     deltas,
     callouts: deltaCallouts(deltas),
     funnel,
+    funnelMeta: buildFunnelMeta(funnelRows, metricRows),
     latest,
     previous,
   };
@@ -244,6 +265,7 @@ export type MonthlyReportData = {
   callouts: string[];
   forecast: ForecastSeries;
   funnel: FunnelSeries; // all funnel data ≤ report month
+  funnelMeta: FunnelMeta;
   keyCustomers: { customer: Customer; update: CustomerUpdate | null }[];
   plans: { id: string; name: string; description: string | null; scenarioCount: number; horizonMonths: number; startingCash: number }[];
   prevReportPeriod: string | null;
@@ -263,7 +285,7 @@ export async function getMonthlyReportData(orgId: string, periodStr: string): Pr
   if (!reportRows[0]) return null;
   const report = { ...reportRows[0].FinancialReport, sourceDocument: reportRows[0].FinancialDocument };
 
-  const [snapshotRows, forecastRows, funnelRows, allCustomers, updates, plans, allReports] = await Promise.all([
+  const [snapshotRows, forecastRows, funnelRows, metricRows, allCustomers, updates, plans, allReports] = await Promise.all([
     db
       .select()
       .from(financialSnapshots)
@@ -279,6 +301,7 @@ export async function getMonthlyReportData(orgId: string, periodStr: string): Pr
       .from(funnelSnapshots)
       .where(and(eq(funnelSnapshots.organizationId, orgId), lte(funnelSnapshots.period, period)))
       .orderBy(asc(funnelSnapshots.period)),
+    db.select().from(funnelStageMetrics).where(eq(funnelStageMetrics.organizationId, orgId)),
     db.select().from(customers).where(eq(customers.organizationId, orgId)).orderBy(desc(customers.arr)),
     // Match the calendar month, not an exact timestamp — period rows may have
     // been written from another timezone (local vs UTC midnight). A ±12h
@@ -363,6 +386,7 @@ export async function getMonthlyReportData(orgId: string, periodStr: string): Pr
     callouts: deltaCallouts(deltas),
     forecast,
     funnel,
+    funnelMeta: buildFunnelMeta(funnelRows, metricRows),
     keyCustomers: key,
     plans: planList,
     prevReportPeriod: i > 0 ? reportPeriods[i - 1] : null,
