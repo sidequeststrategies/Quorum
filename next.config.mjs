@@ -48,6 +48,11 @@ const nextConfig = {
   // Database drivers stay external: postgres-js uses dynamic requires and
   // PGlite ships wasm assets — neither survives bundling.
   serverExternalPackages: ["postgres", "@electric-sql/pglite"],
+  // The pipeline report is a static HTML template read at request time; make
+  // sure Vercel's output tracing ships it with the route's function.
+  outputFileTracingIncludes: {
+    "/pipelinereport": ["./src/app/pipelinereport/report.html"],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

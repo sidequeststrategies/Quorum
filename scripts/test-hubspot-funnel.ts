@@ -129,3 +129,18 @@ if (failures) {
   process.exit(1);
 }
 console.log("\nAll assertions passed.");
+
+// ── quarterOffset (pipeline report) ─────────────────────────────────────────
+import { quarterOffset } from "../src/lib/hubspot";
+const NOW_Q = d("2026-07-07T12:00:00Z"); // Q3 2026
+expect("closeQuarter same quarter", quarterOffset(d("2026-08-15T00:00:00Z"), NOW_Q), 0);
+expect("closeQuarter next quarter", quarterOffset(d("2026-10-01T00:00:00Z"), NOW_Q), 1);
+expect("closeQuarter next year", quarterOffset(d("2027-08-31T00:00:00Z"), NOW_Q), 4);
+expect("closeQuarter past clamps to 0", quarterOffset(d("2026-01-05T00:00:00Z"), NOW_Q), 0);
+expect("closeQuarter missing clamps to horizon", quarterOffset(null, NOW_Q), 7);
+expect("closeQuarter far future clamps to 7", quarterOffset(d("2031-01-01T00:00:00Z"), NOW_Q), 7);
+
+if (failures) {
+  console.error(`\n${failures} assertion(s) failed`);
+  process.exit(1);
+}
