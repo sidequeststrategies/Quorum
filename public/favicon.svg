@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-label="AssetCool">
+  <defs>
+    <linearGradient id="dropGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#23B7CF"/>
+      <stop offset=".55" stop-color="#008BCA"/>
+      <stop offset="1" stop-color="#234191"/>
+    </linearGradient>
+    <radialGradient id="orbGrad" cx=".35" cy=".3" r=".9">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#C9D4DB"/>
+    </radialGradient>
+  </defs>
+  <path fill="url(#dropGrad)" d="M50 4C50 4 14 44 14 66a36 36 0 0 0 72 0C86 44 50 4 50 4Z"/>
+  <circle cx="50" cy="62" r="17" fill="url(#orbGrad)"/>
+  <path fill="#0F314D" d="M60 34 78 26 74 45 68 39 58 49 52 43 66 30Z" transform="rotate(6 65 38)"/>
+  <path fill="#FFFFFF" d="M59 35 74 28.5 71 43.5 66.5 39 58.5 47 54.5 43 63.5 34.5Z" transform="rotate(6 65 38)"/>
+</svg>
