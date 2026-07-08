@@ -359,6 +359,7 @@ export type PipelineReportDeal = {
   enteredFunnel: string; // ISO date
   stageEntered: string; // ISO date
   closeQuarter: number; // 0 = current quarter
+  probability: number | null; // per-deal close probability, 0–1 (stage default unless overridden in HubSpot)
   product: string;
   scope: string;
   contact: { name: string; title: string };
@@ -441,6 +442,21 @@ function isoDate(s: string | null | undefined): string {
   return d ? d.toISOString().slice(0, 10) : "";
 }
 
+// Customer name from a deal name, used only when the deal has no associated
+// company (or the companies scope is missing). AssetCool's convention is
+// "<customer>-SEnn-<scope>" (also spaced/keyword variants), so cut at the
+// first product/deal-type marker instead of the first hyphen — naive
+// splitting turned "Hydro-Quebec-SE02-Pilot" into "Hydro".
+const DEAL_TYPE_MARKER =
+  /\s*[-–—]?\s*(SE\d+|Robotic Maintenance|New Lines License|Framework Agreement|Machine Sale|Retrofit Pilot|Noise Pilot|New Deal|CAM[- ]?ACU)\b/i;
+
+export function customerFromDealName(name: string): string {
+  const trimmed = name.trim();
+  const cut = trimmed.search(DEAL_TYPE_MARKER);
+  const head = (cut > 0 ? trimmed.slice(0, cut) : trimmed).replace(/[-–—\s]+$/, "").trim();
+  return head || trimmed || "—";
+}
+
 // Quarter offset of a close date vs now: 0 = current quarter, clamped to the
 // report's 8-quarter horizon. Missing/past dates clamp to the near edge.
 export function quarterOffset(closeDate: Date | null, now: Date): number {
@@ -500,6 +516,7 @@ export async function fetchPipelineReportDeals(now = new Date()): Promise<Pipeli
     "closedate",
     "description",
     "hs_priority",
+    "hs_deal_stage_probability",
     "hs_v2_date_entered_current_stage",
   ].join(",");
 
@@ -557,7 +574,7 @@ export async function fetchPipelineReportDeals(now = new Date()): Promise<Pipeli
     return {
       id: r.id,
       name: p.dealname ?? `Deal ${r.id}`,
-      customer: company?.name ?? ((p.dealname ?? "").split(/[-–—]/)[0].trim() || "—"),
+      customer: company?.name ?? customerFromDealName(p.dealname ?? ""),
       region: info?.region ?? "Other",
       country: countryRaw || "—",
       flag: info ? flagFromIso(info.iso) : "🌐",
@@ -567,6 +584,10 @@ export async function fetchPipelineReportDeals(now = new Date()): Promise<Pipeli
       enteredFunnel: entered,
       stageEntered: isoDate(p.hs_v2_date_entered_current_stage) || entered,
       closeQuarter: quarterOffset(parseDate(p.closedate), now),
+      probability:
+        p.hs_deal_stage_probability != null && isFinite(Number(p.hs_deal_stage_probability))
+          ? Number(p.hs_deal_stage_probability)
+          : null,
       product: "—",
       scope: "—",
       contact: { name: "—", title: "" },
@@ -574,6 +595,70 @@ export async function fetchPipelineReportDeals(now = new Date()): Promise<Pipeli
       notes: p.description ?? "",
     };
   });
+}
+
+// Stage close-probabilities as configured on the HubSpot pipeline, as integer
+// percents keyed by stage id. These drive the report's default weightings so
+// its weighted pipeline matches HubSpot's to the pound.
+export async function fetchPipelineStageProbabilities(pipelineId: string): Promise<Record<string, number> | null> {
+  const token = process.env.HUBSPOT_ACCESS_TOKEN;
+  try {
+    const res = await fetch(`${HS_BASE}/crm/v3/pipelines/deals/${encodeURIComponent(pipelineId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`pipeline read failed (${res.status})`);
+    const json = (await res.json()) as { stages: { id: string; metadata?: { probability?: string } }[] };
+    const out: Record<string, number> = {};
+    for (const s of json.stages) {
+      const p = Number(s.metadata?.probability);
+      if (isFinite(p)) out[s.id] = Math.round(p * 100);
+    }
+    return Object.keys(out).length ? out : null;
+  } catch (e) {
+    console.error("HubSpot pipeline config unavailable (deriving weights from deals):", (e as Error).message);
+    return null;
+  }
+}
+
+// Fallback when the pipelines endpoint is unavailable: the most common
+// per-deal probability in each stage (per-deal overrides are the minority,
+// so the mode recovers the stage default).
+export function deriveStageWeights(deals: { stage: string; probability: number | null }[]): Record<string, number> {
+  const byStage = new Map<string, Map<number, number>>();
+  for (const d of deals) {
+    if (d.probability == null) continue;
+    const pct = Math.round(d.probability * 100);
+    const counts = byStage.get(d.stage) ?? new Map<number, number>();
+    counts.set(pct, (counts.get(pct) ?? 0) + 1);
+    byStage.set(d.stage, counts);
+  }
+  const out: Record<string, number> = {};
+  for (const [stage, counts] of byStage) {
+    let best = -1;
+    let bestN = 0;
+    for (const [pct, n] of counts) {
+      if (n > bestN || (n === bestN && pct > best)) {
+        best = pct;
+        bestN = n;
+      }
+    }
+    if (best >= 0) out[stage] = best;
+  }
+  return out;
+}
+
+// Everything the pipeline report page needs in one call.
+export async function fetchPipelineReport(now = new Date()): Promise<{
+  deals: PipelineReportDeal[];
+  stageWeights: Record<string, number>;
+}> {
+  const pipelineId = process.env.HUBSPOT_PIPELINE_ID ?? "default";
+  const [deals, configured] = await Promise.all([
+    fetchPipelineReportDeals(now),
+    fetchPipelineStageProbabilities(pipelineId),
+  ]);
+  return { deals, stageWeights: configured ?? deriveStageWeights(deals) };
 }
 
 // Refresh on page view when the last sync is stale. Never throws — a HubSpot

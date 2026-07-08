@@ -1,34 +1,94 @@
 [
   {
-    "id": "F-1", "name": "Fixture Utility A — SE02 Full Circuit", "customer": "Fixture Utility A",
-    "region": "North America", "country": "United States", "flag": "🇺🇸", "value": 4500000,
-    "stage": "contractsent", "priority": "high",
-    "enteredFunnel": "2026-03-01", "stageEntered": "2026-06-10", "closeQuarter": 1,
-    "product": "—", "scope": "—", "contact": { "name": "—", "title": "" },
-    "hubspotUrl": "#", "notes": "Fixture deal for local look-and-feel review."
+    "id": "F-1",
+    "name": "Fixture Utility A — SE02 Full Circuit",
+    "customer": "Fixture Utility A",
+    "region": "North America",
+    "country": "United States",
+    "flag": "🇺🇸",
+    "value": 4500000,
+    "stage": "contractsent",
+    "priority": "high",
+    "enteredFunnel": "2026-03-01",
+    "stageEntered": "2026-06-10",
+    "closeQuarter": 1,
+    "product": "—",
+    "scope": "—",
+    "contact": {
+      "name": "—",
+      "title": ""
+    },
+    "hubspotUrl": "#",
+    "notes": "Fixture deal for local look-and-feel review.",
+    "probability": 0.6
   },
   {
-    "id": "F-2", "name": "Fixture Grid B — Pilot", "customer": "Fixture Grid B",
-    "region": "Europe", "country": "United Kingdom", "flag": "🇬🇧", "value": 250000,
-    "stage": "presentationscheduled", "priority": "medium",
-    "enteredFunnel": "2026-05-15", "stageEntered": "2026-06-25", "closeQuarter": 2,
-    "product": "—", "scope": "—", "contact": { "name": "—", "title": "" },
-    "hubspotUrl": "#", "notes": ""
+    "id": "F-2",
+    "name": "Fixture Grid B — Pilot",
+    "customer": "Fixture Grid B",
+    "region": "Europe",
+    "country": "United Kingdom",
+    "flag": "🇬🇧",
+    "value": 250000,
+    "stage": "presentationscheduled",
+    "priority": "medium",
+    "enteredFunnel": "2026-05-15",
+    "stageEntered": "2026-06-25",
+    "closeQuarter": 2,
+    "product": "—",
+    "scope": "—",
+    "contact": {
+      "name": "—",
+      "title": ""
+    },
+    "hubspotUrl": "#",
+    "notes": "",
+    "probability": 0.3
   },
   {
-    "id": "F-3", "name": "Fixture Energia C — Feasibility", "customer": "Fixture Energia C",
-    "region": "South America", "country": "Brazil", "flag": "🇧🇷", "value": 900000,
-    "stage": "qualifiedtobuy", "priority": "medium",
-    "enteredFunnel": "2026-06-20", "stageEntered": "2026-06-20", "closeQuarter": 3,
-    "product": "—", "scope": "—", "contact": { "name": "—", "title": "" },
-    "hubspotUrl": "#", "notes": ""
+    "id": "F-3",
+    "name": "Fixture Energia C — Feasibility",
+    "customer": "Fixture Energia C",
+    "region": "South America",
+    "country": "Brazil",
+    "flag": "🇧🇷",
+    "value": 900000,
+    "stage": "qualifiedtobuy",
+    "priority": "medium",
+    "enteredFunnel": "2026-06-20",
+    "stageEntered": "2026-06-20",
+    "closeQuarter": 3,
+    "product": "—",
+    "scope": "—",
+    "contact": {
+      "name": "—",
+      "title": ""
+    },
+    "hubspotUrl": "#",
+    "notes": "",
+    "probability": 0.2
   },
   {
-    "id": "F-4", "name": "Fixture Networks D — Framework Proposal", "customer": "Fixture Networks D",
-    "region": "Europe", "country": "Spain", "flag": "🇪🇸", "value": 1800000,
-    "stage": "decisionmakerboughtin", "priority": "high",
-    "enteredFunnel": "2026-01-10", "stageEntered": "2026-04-02", "closeQuarter": 0,
-    "product": "—", "scope": "—", "contact": { "name": "—", "title": "" },
-    "hubspotUrl": "#", "notes": "Aged deal — exercises the wilted flower visual and stalled momentum row."
+    "id": "F-4",
+    "name": "Fixture Networks D — Framework Proposal",
+    "customer": "Fixture Networks D",
+    "region": "Europe",
+    "country": "Spain",
+    "flag": "🇪🇸",
+    "value": 1800000,
+    "stage": "decisionmakerboughtin",
+    "priority": "high",
+    "enteredFunnel": "2026-01-10",
+    "stageEntered": "2026-04-02",
+    "closeQuarter": 0,
+    "product": "—",
+    "scope": "—",
+    "contact": {
+      "name": "—",
+      "title": ""
+    },
+    "hubspotUrl": "#",
+    "notes": "Aged deal — exercises the wilted flower visual and stalled momentum row.",
+    "probability": 0.4
   }
 ]

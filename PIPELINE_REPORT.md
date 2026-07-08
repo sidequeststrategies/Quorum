@@ -72,7 +72,11 @@ can be deleted once this is merged.
 - Branding intentionally uses the punchier assetcool.com palette
   (Montserrat, #008BCA / #0F314D / #FDCD0B), not the portal palette in
   `BRAND.md`. Reconcile whenever one is declared canonical.
-- Stage weightings/benchmarks in `STAGES` are editable assumptions (sliders
-  at runtime, defaults in the template) — revisit once enough closed-deal
-  history exists to calibrate them from actuals.
+- Default stage weightings sync from the HubSpot pipeline's configured
+  close probabilities (`fetchPipelineStageProbabilities`; falls back to the
+  modal per-deal probability, then to template values), so the weighted
+  pipeline matches HubSpot's own number on load. Note HubSpot allows
+  per-deal probability overrides — the report's stage-level model rounds
+  over those, so a small residual vs HubSpot is possible when deals carry
+  overrides. Momentum `benchmarkDays` remain editable assumptions.
 - Not linked from app navigation yet.

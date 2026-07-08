@@ -144,3 +144,40 @@ if (failures) {
   console.error(`\n${failures} assertion(s) failed`);
   process.exit(1);
 }
+
+// ── deriveStageWeights (pipeline report weight fallback) ────────────────────
+import { deriveStageWeights } from "../src/lib/hubspot";
+const dw = deriveStageWeights([
+  // 3 deals at the stage default, 1 manual override — mode must win.
+  { stage: "appointmentscheduled", probability: 0.1 },
+  { stage: "appointmentscheduled", probability: 0.1 },
+  { stage: "appointmentscheduled", probability: 0.1 },
+  { stage: "appointmentscheduled", probability: 0.2 },
+  { stage: "contractsent", probability: 0.6 },
+  { stage: "qualifiedtobuy", probability: null }, // no probability → stage omitted
+]);
+expect("mode beats override", dw["appointmentscheduled"], 10);
+expect("single-deal stage", dw["contractsent"], 60);
+expect("null probabilities omitted", "qualifiedtobuy" in dw, false);
+
+if (failures) {
+  console.error(`\n${failures} assertion(s) failed`);
+  process.exit(1);
+}
+
+// ── customerFromDealName (fallback when no company association) ─────────────
+import { customerFromDealName } from "../src/lib/hubspot";
+expect("hyphenated company kept", customerFromDealName("Hydro-Quebec-SE02-Pilot"), "Hydro-Quebec");
+expect("spaced marker", customerFromDealName("Manitoba Hydro - SE02 Retrofit "), "Manitoba Hydro");
+expect("marker without dash", customerFromDealName("ISA Chile SE05 Full Circuit Bespoke Noise Issue"), "ISA Chile");
+expect("keyword marker license", customerFromDealName("MIDAL New Lines License"), "MIDAL");
+expect("keyword marker agreement", customerFromDealName("Google Framework Agreement"), "Google");
+expect("keyword marker new deal", customerFromDealName("ACME Solar Holdings - New Deal"), "ACME Solar Holdings");
+expect("SSE not confused by SE letters", customerFromDealName("SSE-SE02-First Full Circuit Deployment"), "SSE");
+expect("no marker → whole name", customerFromDealName("66 kV D/C Line with ACSR Dog Conductor"), "66 kV D/C Line with ACSR Dog Conductor");
+expect("empty → em dash", customerFromDealName(""), "—");
+
+if (failures) {
+  console.error(`\n${failures} assertion(s) failed`);
+  process.exit(1);
+}
