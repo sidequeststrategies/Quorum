@@ -16,11 +16,12 @@ currency (£ for AssetCool).
   `STAGES` array is AssetCool's actual HubSpot pipeline, keyed by HubSpot
   stage ids (`appointmentscheduled` … `5131910380`); "On Hold" and closed
   deals are excluded.
-- `src/app/pipelinereport/route.ts` — auth-gated route handler:
-  `requireMembership()` → fetch deals (`fetchPipelineReportDeals()` in
-  `src/lib/hubspot.ts`, which pulls deals + associated companies for
-  customer/country/region) → inject as `window.PIPELINE` at the
-  `/*__PIPELINE_DATA__*/` marker (`<`-escaped) → serve with `no-store`.
+- `src/app/pipelinereport/route.ts` — auth-gated route handler: signed-in
+  member **or** pipeline-report guest → fetch deals
+  (`fetchPipelineReportDeals()` in `src/lib/hubspot.ts`, which pulls deals +
+  associated companies for customer/country/region) → inject as
+  `window.PIPELINE` at the `/*__PIPELINE_DATA__*/` marker (`<`-escaped) →
+  serve with `no-store`.
 - `next.config.mjs` ships the template via `outputFileTracingIncludes`.
 - Company lookups degrade gracefully: without `crm.objects.companies.read`
   scope, customer names fall back to the deal-name prefix and regions to
@@ -30,6 +31,24 @@ currency (£ for AssetCool).
 
 `window.PIPELINE.source`: `hubspot` (live), `demo` (fixture, yellow badge),
 `unconfigured` / `error` (warning badge, empty report).
+
+## Page chrome
+
+- **Light mode** — header toggle; persisted per browser (`pr-theme`).
+- **Print report** — header button → condensed two-page printout (KPIs +
+  funnel on page 1; momentum, geography, projection on page 2; garden,
+  scenario controls and notes are omitted; always prints light-on-white).
+- **Opportunity Garden** — collapsible, default rolled up with a one-line
+  summary (deal count, wilted/aging); state persisted per browser
+  (`pr-garden`).
+
+## Sharing with a guest (page-scoped access)
+
+Set `PIPELINE_REPORT_GUEST_EMAILS="person@example.com"` (comma-separated) in
+the deployment. Those emails can sign in with Google and see **only** this
+page: every other portal route redirects them back here, and they cannot
+create a workspace via onboarding. Remove the email and redeploy to revoke.
+(Members of the org see the report as part of the portal, as before.)
 
 ## Local development without a token
 
