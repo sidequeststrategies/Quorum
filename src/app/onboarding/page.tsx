@@ -10,15 +10,19 @@ import { memberships, organizations } from "@/db/schema";
 import { requireUser } from "@/lib/session";
 import { slugify } from "@/lib/utils";
 import { logoutAction } from "@/lib/actions/auth";
+import { pipelineReportGuest } from "@/lib/access";
 
 export default async function OnboardingPage() {
   const user = await requireUser();
   const existing = await db.select().from(memberships).where(eq(memberships.userId, user.id)).limit(1);
   if (existing[0]) redirect("/dashboard");
+  // Pipeline-report guests get exactly one page — they never create a workspace.
+  if (pipelineReportGuest(user.email)) redirect("/pipelinereport");
 
   async function createOrg(formData: FormData) {
     "use server";
     const u = await requireUser();
+    if (pipelineReportGuest(u.email)) throw new Error("Guest accounts cannot create a workspace.");
     const orgName = String(formData.get("orgName") || "").trim();
     if (orgName.length < 2) throw new Error("Org name required");
 

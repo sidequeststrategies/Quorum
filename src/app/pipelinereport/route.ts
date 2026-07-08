@@ -5,7 +5,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { requireMembership } from "@/lib/session";
+import { redirect } from "next/navigation";
+import { getCurrentMembership } from "@/lib/session";
+import { pipelineReportGuest } from "@/lib/access";
 import { fetchPipelineReportDeals, hubspotConfigured, type PipelineReportDeal } from "@/lib/hubspot";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +15,10 @@ export const dynamic = "force-dynamic";
 const MARKER = "/*__PIPELINE_DATA__*/{ source:'unconfigured', deals:[] }";
 
 export async function GET() {
-  await requireMembership(); // redirects unauthenticated visitors to /login
+  // Members see the report as part of the portal. PIPELINE_REPORT_GUEST_EMAILS
+  // may additionally view this one page after Google sign-in — nothing else.
+  const { user, membership } = await getCurrentMembership(); // redirects signed-out visitors to /login
+  if (!membership && !pipelineReportGuest(user.email)) redirect("/onboarding");
 
   let payload: { source: string; deals: PipelineReportDeal[] };
   if (!hubspotConfigured()) {

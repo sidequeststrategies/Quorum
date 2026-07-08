@@ -267,11 +267,67 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);display
   .vel-stats{text-align:left}
   .report-meta{text-align:left}
 }
+/* ---------- light theme ---------- */
+[data-theme="light"]{
+  --bg:#FFFFFF;
+  --panel:#F5F8FB;
+  --panel2:#E9F1F7;
+  --ink:#0F314D;
+  --muted:#5B7386;
+  --navy:#0F314D;
+  --line:rgba(15,49,77,.16);
+  --shadow:0 6px 20px rgba(15,49,77,.10);
+}
+[data-theme="light"] body{
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(0,139,202,.07), transparent 60%),
+    radial-gradient(900px 500px at -10% 30%, rgba(35,183,207,.05), transparent 55%),
+    var(--bg);
+}
+[data-theme="light"] .region-bar{background:rgba(15,49,77,.10)}
+[data-theme="light"] text[fill="#8FA9BC"]{fill:#5B7386}
+[data-theme="light"] .btn{background:rgba(0,139,202,.08);border-color:var(--blue);color:var(--blue)}
+[data-theme="light"] .btn:hover{background:rgba(0,139,202,.16)}
+
+/* ---------- header action buttons ---------- */
+.report-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+.btn.small{padding:5px 12px;font-size:11px}
+
+/* ---------- collapsible garden ---------- */
+h2.collapsible{cursor:pointer;user-select:none}
+h2.collapsible .chev{display:inline-block;transition:transform .15s;font-size:11px}
+h2.collapsible .roll-summary{font-weight:600;letter-spacing:0;text-transform:none;color:var(--muted);font-size:12px}
+#gardenSection.collapsed #gardenBody{display:none}
+#gardenSection.collapsed h2 .chev{transform:rotate(-90deg)}
+
+/* ---------- print: condensed two-page board summary ---------- */
 @media print{
-  body{background:#fff;color:#111}
+  html{--bg:#fff;--panel:#fff;--panel2:#fff;--ink:#111;--muted:#444;--navy:#0F314D;--line:#ccc;--shadow:none}
+  body{background:#fff;color:#111;font-size:11px}
+  .wrap{max-width:none;padding:0}
   .panel,.kpi,.stage-row,.deal-card,.region-card,.vel-row,.legend,.forecast-panel{box-shadow:none;border-color:#ccc;background:#fff;color:#111}
+  /* keep it to the essentials */
+  #gardenSection,#controlsSection,.click-hint,.section-note,.report-actions,.demo-badge,.modal-overlay{display:none !important}
+  header{padding:8px 0;margin-bottom:10px}
+  h2{margin:14px 0 6px;page-break-after:avoid}
+  .kpis{gap:8px;margin-top:6px}
+  .kpi{padding:10px}
+  .kpi .value{font-size:20px}
+  .stage-row,.vel-row{padding:8px 12px;page-break-inside:avoid}
+  .region-card{padding:10px;page-break-inside:avoid}
+  .forecast-panel{page-break-inside:avoid;padding:8px}
+  #forecastChart{max-height:300px}
+  /* page 1: KPIs + funnel · page 2: momentum, geography, projection */
+  #momentumSection{page-break-before:always}
+  footer{margin-top:10px}
 }
 </style>
+<script>
+// Apply the saved theme before first paint to avoid a flash.
+document.documentElement.dataset.theme = (function(){
+  try { return localStorage.getItem('pr-theme') === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
+})();
+</script>
 </head>
 <body>
 <div class="wrap">
@@ -304,6 +360,10 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);display
     <div class="report-title">Pipeline &amp; Financial Board Report</div>
     <div class="report-date" id="reportDate"></div>
     <div class="demo-badge" id="demoBadge"><span class="dot"></span> DEMO DATA — NOT LIVE</div>
+    <div class="report-actions">
+      <button class="btn small" id="themeBtn" type="button" aria-pressed="false">☀ Light mode</button>
+      <button class="btn small" id="printBtn" type="button">⎙ Print report</button>
+    </div>
   </div>
 </header>
 
@@ -316,23 +376,33 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);display
 <div class="funnel" id="funnel"></div>
 <p class="click-hint">Click any stage for the full deal breakout.</p>
 
-<!-- GARDEN -->
-<h2>Opportunity Garden — Deal Age at a Glance</h2>
+<!-- GARDEN (collapsible) -->
+<section id="gardenSection" class="collapsed">
+<h2 class="collapsible" id="gardenToggle" role="button" aria-expanded="false" tabindex="0">
+  <span class="chev">▼</span> Opportunity Garden — Deal Age at a Glance
+  <span class="roll-summary" id="gardenSummary"></span>
+</h2>
+<div id="gardenBody">
 <p class="section-note">Every opportunity is a flower. Fresh deals are in full bloom; deals sitting in the funnel too long wilt. Age is measured from the day the opportunity entered the funnel.</p>
 <div class="legend" id="gardenLegend"></div>
 <div class="garden" id="garden"></div>
 <p class="click-hint">Click any deal for full details.</p>
+</div>
+</section>
 
 <!-- VELOCITY -->
+<section id="momentumSection">
 <h2>Funnel Momentum — Time in Current Stage</h2>
 <p class="section-note">Each bar shows the average time deals have spent in their current stage versus the historical benchmark for that stage (white marker). Bars past the marker signal deals losing momentum.</p>
 <div class="velocity" id="velocity"></div>
+</section>
 
 <!-- REGIONS -->
 <h2>Pipeline by Geography</h2>
 <div class="regions" id="regions"></div>
 
 <!-- WEIGHTS + ASSUMPTIONS -->
+<section id="controlsSection">
 <h2>Scenario Controls</h2>
 <p class="section-note">Adjust stage weightings and financial assumptions — every chart and KPI on this page recalculates live. In production, default weightings sync from HubSpot deal-stage probabilities; the values below are demo defaults with the rationale we would present to the board.</p>
 <div class="two-col">
@@ -350,6 +420,7 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);display
     <div style="margin-top:14px"><button class="btn" id="resetFin">Reset assumptions</button></div>
   </div>
 </div>
+</section>
 
 <!-- FORECAST -->
 <h2>Financial Projection — Weighted Scenario Bands</h2>
@@ -960,6 +1031,52 @@ function init(){
   buildWeightSliders();
   buildFinSliders();
   renderKPIs(); renderFunnel(); renderGarden(); renderVelocity(); renderRegions(); renderWeightedTotal(); renderForecast();
+  initChrome();
+}
+
+// Theme toggle, print, and the collapsible garden — pure page chrome, no
+// effect on the numbers.
+function initChrome(){
+  const themeBtn = $('#themeBtn');
+  const syncThemeBtn = () => {
+    const light = document.documentElement.dataset.theme === 'light';
+    themeBtn.textContent = light ? '☾ Dark mode' : '☀ Light mode';
+    themeBtn.setAttribute('aria-pressed', String(light));
+  };
+  themeBtn.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('pr-theme', next); } catch {}
+    syncThemeBtn();
+  });
+  syncThemeBtn();
+
+  $('#printBtn').addEventListener('click', () => window.print());
+
+  // Garden roll-up: collapsed by default, remembered per browser. The
+  // summary line keeps the signal visible while rolled up.
+  const section = $('#gardenSection');
+  const toggle = $('#gardenToggle');
+  const ds = deals();
+  const wilted = ds.filter(d => ageBucket(d) === 'wilted').length;
+  const aging = ds.filter(d => ageBucket(d) === 'aging').length;
+  $('#gardenSummary').textContent =
+    ds.length === 0 ? '' :
+    `· ${ds.length} deals` + (wilted ? ` · ${wilted} wilted` : '') + (aging ? ` · ${aging} aging` : '') + ' — click to expand';
+  try { if (localStorage.getItem('pr-garden') === 'open') section.classList.remove('collapsed'); } catch {}
+  const syncGarden = () => {
+    const open = !section.classList.contains('collapsed');
+    toggle.setAttribute('aria-expanded', String(open));
+    $('#gardenSummary').style.display = open ? 'none' : '';
+  };
+  const flip = () => {
+    section.classList.toggle('collapsed');
+    try { localStorage.setItem('pr-garden', section.classList.contains('collapsed') ? 'closed' : 'open'); } catch {}
+    syncGarden();
+  };
+  toggle.addEventListener('click', flip);
+  toggle.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+  syncGarden();
 }
 init();
 </script>

@@ -6,7 +6,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { memberships, organizations, users } from "@/db/schema";
 import { getSupabaseServer, supabaseConfigured } from "@/lib/supabase";
-import { ssoEmailAllowed } from "@/lib/access";
+import { pipelineReportGuest, ssoEmailAllowed } from "@/lib/access";
 import type { Role } from "@/lib/enums";
 
 export type SessionUser = { id: string; email: string; name?: string | null };
@@ -108,7 +108,11 @@ export const getCurrentMembership = cache(async () => {
 
 export async function requireMembership() {
   const { user, membership } = await getCurrentMembership();
-  if (!membership) redirect("/onboarding");
+  if (!membership) {
+    // Pipeline-report guests are confined to that one page; everyone else
+    // without a workspace goes through onboarding.
+    redirect(pipelineReportGuest(user.email) ? "/pipelinereport" : "/onboarding");
+  }
   return { user, membership };
 }
 
