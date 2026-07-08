@@ -164,3 +164,20 @@ if (failures) {
   console.error(`\n${failures} assertion(s) failed`);
   process.exit(1);
 }
+
+// ── customerFromDealName (fallback when no company association) ─────────────
+import { customerFromDealName } from "../src/lib/hubspot";
+expect("hyphenated company kept", customerFromDealName("Hydro-Quebec-SE02-Pilot"), "Hydro-Quebec");
+expect("spaced marker", customerFromDealName("Manitoba Hydro - SE02 Retrofit "), "Manitoba Hydro");
+expect("marker without dash", customerFromDealName("ISA Chile SE05 Full Circuit Bespoke Noise Issue"), "ISA Chile");
+expect("keyword marker license", customerFromDealName("MIDAL New Lines License"), "MIDAL");
+expect("keyword marker agreement", customerFromDealName("Google Framework Agreement"), "Google");
+expect("keyword marker new deal", customerFromDealName("ACME Solar Holdings - New Deal"), "ACME Solar Holdings");
+expect("SSE not confused by SE letters", customerFromDealName("SSE-SE02-First Full Circuit Deployment"), "SSE");
+expect("no marker → whole name", customerFromDealName("66 kV D/C Line with ACSR Dog Conductor"), "66 kV D/C Line with ACSR Dog Conductor");
+expect("empty → em dash", customerFromDealName(""), "—");
+
+if (failures) {
+  console.error(`\n${failures} assertion(s) failed`);
+  process.exit(1);
+}

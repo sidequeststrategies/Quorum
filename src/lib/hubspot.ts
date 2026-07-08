@@ -442,6 +442,21 @@ function isoDate(s: string | null | undefined): string {
   return d ? d.toISOString().slice(0, 10) : "";
 }
 
+// Customer name from a deal name, used only when the deal has no associated
+// company (or the companies scope is missing). AssetCool's convention is
+// "<customer>-SEnn-<scope>" (also spaced/keyword variants), so cut at the
+// first product/deal-type marker instead of the first hyphen — naive
+// splitting turned "Hydro-Quebec-SE02-Pilot" into "Hydro".
+const DEAL_TYPE_MARKER =
+  /\s*[-–—]?\s*(SE\d+|Robotic Maintenance|New Lines License|Framework Agreement|Machine Sale|Retrofit Pilot|Noise Pilot|New Deal|CAM[- ]?ACU)\b/i;
+
+export function customerFromDealName(name: string): string {
+  const trimmed = name.trim();
+  const cut = trimmed.search(DEAL_TYPE_MARKER);
+  const head = (cut > 0 ? trimmed.slice(0, cut) : trimmed).replace(/[-–—\s]+$/, "").trim();
+  return head || trimmed || "—";
+}
+
 // Quarter offset of a close date vs now: 0 = current quarter, clamped to the
 // report's 8-quarter horizon. Missing/past dates clamp to the near edge.
 export function quarterOffset(closeDate: Date | null, now: Date): number {
@@ -559,7 +574,7 @@ export async function fetchPipelineReportDeals(now = new Date()): Promise<Pipeli
     return {
       id: r.id,
       name: p.dealname ?? `Deal ${r.id}`,
-      customer: company?.name ?? ((p.dealname ?? "").split(/[-–—]/)[0].trim() || "—"),
+      customer: company?.name ?? customerFromDealName(p.dealname ?? ""),
       region: info?.region ?? "Other",
       country: countryRaw || "—",
       flag: info ? flagFromIso(info.iso) : "🌐",
