@@ -51,6 +51,10 @@ const nextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // Static look-and-feel prototype (fabricated data) — see PIPELINE_REPORT.md.
+  async rewrites() {
+    return [{ source: "/pipelinereport", destination: "/pipelinereport/index.html" }];
+  },
 };
 
 export default nextConfig;
