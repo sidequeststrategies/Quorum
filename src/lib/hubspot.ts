@@ -339,6 +339,243 @@ export async function writeFunnel(orgId: string, { snapshots, metrics }: Compute
   }
 }
 
+// ── Pipeline report (deal-level export for /pipelinereport) ────────────────
+//
+// The interactive pipeline report renders individual deals, not monthly
+// aggregates, so it fetches its own richer deal list (with company
+// associations for customer/region) and maps to the shape the report's
+// embedded script expects. Fields the CRM can't provide degrade to em-dashes.
+
+export type PipelineReportDeal = {
+  id: string;
+  name: string;
+  customer: string;
+  region: string;
+  country: string;
+  flag: string; // emoji
+  value: number; // portal home currency (GBP for AssetCool)
+  stage: string; // HubSpot stage id — matches the report's STAGES keys
+  priority: "high" | "medium" | "low";
+  enteredFunnel: string; // ISO date
+  stageEntered: string; // ISO date
+  closeQuarter: number; // 0 = current quarter
+  product: string;
+  scope: string;
+  contact: { name: string; title: string };
+  hubspotUrl: string;
+  notes: string;
+};
+
+// AssetCool's HubSpot portal; override per client.
+const DEFAULT_PORTAL_ID = "147939934";
+const DEFAULT_UI_DOMAIN = "app-eu1.hubspot.com";
+
+// Company `country` (free text, lowercased) → region bucket + ISO code for
+// the flag emoji. Unknown countries land in "Other" with a globe.
+const COUNTRY_INFO: Record<string, { iso: string; region: string }> = {
+  "united states": { iso: "US", region: "North America" },
+  usa: { iso: "US", region: "North America" },
+  us: { iso: "US", region: "North America" },
+  canada: { iso: "CA", region: "North America" },
+  mexico: { iso: "MX", region: "North America" },
+  "united kingdom": { iso: "GB", region: "Europe" },
+  uk: { iso: "GB", region: "Europe" },
+  england: { iso: "GB", region: "Europe" },
+  scotland: { iso: "GB", region: "Europe" },
+  ireland: { iso: "IE", region: "Europe" },
+  spain: { iso: "ES", region: "Europe" },
+  france: { iso: "FR", region: "Europe" },
+  germany: { iso: "DE", region: "Europe" },
+  italy: { iso: "IT", region: "Europe" },
+  portugal: { iso: "PT", region: "Europe" },
+  netherlands: { iso: "NL", region: "Europe" },
+  belgium: { iso: "BE", region: "Europe" },
+  sweden: { iso: "SE", region: "Europe" },
+  norway: { iso: "NO", region: "Europe" },
+  denmark: { iso: "DK", region: "Europe" },
+  finland: { iso: "FI", region: "Europe" },
+  estonia: { iso: "EE", region: "Europe" },
+  latvia: { iso: "LV", region: "Europe" },
+  lithuania: { iso: "LT", region: "Europe" },
+  poland: { iso: "PL", region: "Europe" },
+  switzerland: { iso: "CH", region: "Europe" },
+  austria: { iso: "AT", region: "Europe" },
+  greece: { iso: "GR", region: "Europe" },
+  brazil: { iso: "BR", region: "South America" },
+  chile: { iso: "CL", region: "South America" },
+  argentina: { iso: "AR", region: "South America" },
+  colombia: { iso: "CO", region: "South America" },
+  peru: { iso: "PE", region: "South America" },
+  uruguay: { iso: "UY", region: "South America" },
+  ecuador: { iso: "EC", region: "South America" },
+  india: { iso: "IN", region: "Asia Pacific" },
+  china: { iso: "CN", region: "Asia Pacific" },
+  japan: { iso: "JP", region: "Asia Pacific" },
+  "south korea": { iso: "KR", region: "Asia Pacific" },
+  australia: { iso: "AU", region: "Asia Pacific" },
+  "new zealand": { iso: "NZ", region: "Asia Pacific" },
+  singapore: { iso: "SG", region: "Asia Pacific" },
+  indonesia: { iso: "ID", region: "Asia Pacific" },
+  vietnam: { iso: "VN", region: "Asia Pacific" },
+  thailand: { iso: "TH", region: "Asia Pacific" },
+  philippines: { iso: "PH", region: "Asia Pacific" },
+  malaysia: { iso: "MY", region: "Asia Pacific" },
+  "united arab emirates": { iso: "AE", region: "Middle East & Africa" },
+  "saudi arabia": { iso: "SA", region: "Middle East & Africa" },
+  qatar: { iso: "QA", region: "Middle East & Africa" },
+  "south africa": { iso: "ZA", region: "Middle East & Africa" },
+  egypt: { iso: "EG", region: "Middle East & Africa" },
+  nigeria: { iso: "NG", region: "Middle East & Africa" },
+  kenya: { iso: "KE", region: "Middle East & Africa" },
+  morocco: { iso: "MA", region: "Middle East & Africa" },
+  israel: { iso: "IL", region: "Middle East & Africa" },
+  turkey: { iso: "TR", region: "Middle East & Africa" },
+};
+
+function flagFromIso(iso: string): string {
+  return String.fromCodePoint(...[...iso.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+}
+
+function isoDate(s: string | null | undefined): string {
+  const d = parseDate(s);
+  return d ? d.toISOString().slice(0, 10) : "";
+}
+
+// Quarter offset of a close date vs now: 0 = current quarter, clamped to the
+// report's 8-quarter horizon. Missing/past dates clamp to the near edge.
+export function quarterOffset(closeDate: Date | null, now: Date): number {
+  if (!closeDate) return 7;
+  const off =
+    (closeDate.getUTCFullYear() - now.getUTCFullYear()) * 4 +
+    (Math.floor(closeDate.getUTCMonth() / 3) - Math.floor(now.getUTCMonth() / 3));
+  return Math.max(0, Math.min(7, off));
+}
+
+type RawDeal = {
+  id: string;
+  properties: Record<string, string | null>;
+  associations?: { companies?: { results: { id: string }[] } };
+};
+
+// Company names/countries for customer + region columns. Missing scope or an
+// API error must not break the report — return an empty map and fall back to
+// deal-name prefixes.
+async function fetchCompanies(ids: string[]): Promise<Map<string, { name: string | null; country: string | null }>> {
+  const map = new Map<string, { name: string | null; country: string | null }>();
+  const token = process.env.HUBSPOT_ACCESS_TOKEN;
+  try {
+    for (let i = 0; i < ids.length; i += 100) {
+      const batch = ids.slice(i, i + 100);
+      const res = await fetch(`${HS_BASE}/crm/v3/objects/companies/batch/read`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ properties: ["name", "country"], inputs: batch.map((id) => ({ id })) }),
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(`companies batch read failed (${res.status})`);
+      const json = (await res.json()) as { results: { id: string; properties: Record<string, string | null> }[] };
+      for (const r of json.results) map.set(r.id, { name: r.properties.name ?? null, country: r.properties.country ?? null });
+    }
+  } catch (e) {
+    console.error("HubSpot company lookup unavailable (falling back to deal names):", (e as Error).message);
+  }
+  return map;
+}
+
+export async function fetchPipelineReportDeals(now = new Date()): Promise<PipelineReportDeal[]> {
+  const token = process.env.HUBSPOT_ACCESS_TOKEN;
+  if (!token) throw new Error("HUBSPOT_ACCESS_TOKEN is not set");
+  const stageMap = getStageMap();
+  const pipelineId = process.env.HUBSPOT_PIPELINE_ID ?? "default";
+  const openStageIds = Object.keys(stageMap).filter(
+    (k) => stageMap[k] !== "CLOSED_WON" && stageMap[k] !== "CLOSED_LOST"
+  );
+
+  const properties = [
+    "dealname",
+    "pipeline",
+    "dealstage",
+    "amount_in_home_currency",
+    "createdate",
+    "closedate",
+    "description",
+    "hs_priority",
+    "hs_v2_date_entered_current_stage",
+  ].join(",");
+
+  const raw: RawDeal[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 200; page++) {
+    const url = new URL(`${HS_BASE}/crm/v3/objects/deals`);
+    url.searchParams.set("limit", "100");
+    url.searchParams.set("archived", "false");
+    url.searchParams.set("properties", properties);
+    url.searchParams.set("associations", "companies");
+    if (after) url.searchParams.set("after", after);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`HubSpot deals fetch failed (${res.status}): ${body.slice(0, 300)}`);
+    }
+    const json = (await res.json()) as { results: RawDeal[]; paging?: { next?: { after?: string } } };
+    raw.push(...json.results);
+    after = json.paging?.next?.after;
+    if (!after) break;
+  }
+
+  const open = raw.filter(
+    (r) => (r.properties.pipeline ?? "default") === pipelineId && openStageIds.includes(r.properties.dealstage ?? "")
+  );
+
+  const companyIds = [...new Set(open.map((r) => r.associations?.companies?.results?.[0]?.id).filter(Boolean))] as string[];
+  const companies = companyIds.length
+    ? await fetchCompanies(companyIds)
+    : new Map<string, { name: string | null; country: string | null }>();
+
+  const portalId = process.env.HUBSPOT_PORTAL_ID ?? DEFAULT_PORTAL_ID;
+  const uiDomain = process.env.HUBSPOT_UI_DOMAIN ?? DEFAULT_UI_DOMAIN;
+
+  return open.map((r) => {
+    const p = r.properties;
+    const companyId = r.associations?.companies?.results?.[0]?.id;
+    const company = companyId ? companies.get(companyId) : undefined;
+    const countryRaw = company?.country?.trim() ?? "";
+    const info = COUNTRY_INFO[countryRaw.toLowerCase()];
+    const amount = p.amount_in_home_currency != null ? Number(p.amount_in_home_currency) : 0;
+    const value = isFinite(amount) ? Math.round(amount) : 0;
+    const hsPriority = (p.hs_priority ?? "").toLowerCase();
+    const priority: PipelineReportDeal["priority"] =
+      hsPriority === "high" || hsPriority === "medium" || hsPriority === "low"
+        ? (hsPriority as PipelineReportDeal["priority"])
+        : value >= 1_000_000
+          ? "high"
+          : value >= 250_000
+            ? "medium"
+            : "low";
+    const entered = isoDate(p.createdate) || now.toISOString().slice(0, 10);
+
+    return {
+      id: r.id,
+      name: p.dealname ?? `Deal ${r.id}`,
+      customer: company?.name ?? ((p.dealname ?? "").split(/[-–—]/)[0].trim() || "—"),
+      region: info?.region ?? "Other",
+      country: countryRaw || "—",
+      flag: info ? flagFromIso(info.iso) : "🌐",
+      value,
+      stage: p.dealstage!,
+      priority,
+      enteredFunnel: entered,
+      stageEntered: isoDate(p.hs_v2_date_entered_current_stage) || entered,
+      closeQuarter: quarterOffset(parseDate(p.closedate), now),
+      product: "—",
+      scope: "—",
+      contact: { name: "—", title: "" },
+      hubspotUrl: `https://${uiDomain}/contacts/${portalId}/record/0-3/${r.id}`,
+      notes: p.description ?? "",
+    };
+  });
+}
+
 // Refresh on page view when the last sync is stale. Never throws — a HubSpot
 // outage must not take down the financials page; the stored snapshot serves.
 const SYNC_TTL_MS = 12 * 3600 * 1000;
