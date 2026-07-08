@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgSchema, text, integer, boolean, timestamp, primaryKey, index, uniqueIndex, customType } from "drizzle-orm/pg-core";
+import { pgSchema, text, integer, boolean, timestamp, primaryKey, index, uniqueIndex, customType, real } from "drizzle-orm/pg-core";
 
 // Postgres bytea. postgres-js and PGlite both return Uint8Array; normalize to
 // Buffer on read in callers.
@@ -472,9 +472,33 @@ export const funnelSnapshots = board.table(
     stage: text("stage").notNull(),
     count: integer("count").notNull().default(0),
     value: integer("value").notNull().default(0), // pipeline $ in the stage, if known
+    // Where the row came from: 'excel' (board-pack import) or 'hubspot'
+    // (live CRM sync). Last writer wins per (period, stage).
+    source: text("source").notNull().default("excel"),
   },
   (t) => ({
     orgPeriodStage: uniqueIndex("FunnelSnapshot_organizationId_period_stage_key").on(t.organizationId, t.period, t.stage),
+  })
+);
+
+// Actual time-in-stage from HubSpot's stage-entry/exit timestamps — the
+// velocity signal monthly stage totals can't provide. One row per (org,
+// stage), refreshed on every sync; syncedAt doubles as the "last synced"
+// indicator for the funnel UI.
+export const funnelStageMetrics = board.table(
+  "FunnelStageMetric",
+  {
+    id: text("id").primaryKey().default(cuid()),
+    organizationId: text("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    stage: text("stage").notNull(),
+    avgDaysInStage: real("avgDaysInStage"), // completed visits (entered & exited)
+    avgOpenAgeDays: real("avgOpenAgeDays"), // deals currently in the stage
+    completedCount: integer("completedCount").notNull().default(0),
+    openCount: integer("openCount").notNull().default(0),
+    syncedAt: ts("syncedAt").notNull(),
+  },
+  (t) => ({
+    orgStage: uniqueIndex("FunnelStageMetric_organizationId_stage_key").on(t.organizationId, t.stage),
   })
 );
 
@@ -497,9 +521,14 @@ export const funnelSnapshotsRelations = relations(funnelSnapshots, ({ one }) => 
   report: one(financialReports, { fields: [funnelSnapshots.reportId], references: [financialReports.id] }),
 }));
 
+export const funnelStageMetricsRelations = relations(funnelStageMetrics, ({ one }) => ({
+  organization: one(organizations, { fields: [funnelStageMetrics.organizationId], references: [organizations.id] }),
+}));
+
 export type FinancialReport = typeof financialReports.$inferSelect;
 export type FinancialForecastValue = typeof financialForecastValues.$inferSelect;
 export type FunnelSnapshot = typeof funnelSnapshots.$inferSelect;
+export type FunnelStageMetric = typeof funnelStageMetrics.$inferSelect;
 
 // -------- Pro forma models --------
 

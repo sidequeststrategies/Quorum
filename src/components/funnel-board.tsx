@@ -1,21 +1,33 @@
 // Customer-funnel display: stage bars for the current month with
 // month-over-month movement, plus the velocity table — stage-to-stage
-// conversion computed across prior reports' funnel snapshots.
+// conversion computed across prior reports' funnel snapshots. When the
+// HubSpot sync is live, a provenance badge and actual time-in-stage numbers
+// (from CRM stage-entry/exit timestamps) join the monthly-count velocity.
 
-import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/finance";
 import { FUNNEL_PATH, FUNNEL_STAGE_LABELS, type FunnelStage } from "@/lib/funnel";
-import type { FunnelSeries } from "@/lib/financial-report";
+import type { FunnelMeta, FunnelSeries } from "@/lib/financial-report";
 import { fmtMonthString } from "@/lib/financial-report";
 
-export function FunnelBoard({ series }: { series: FunnelSeries }) {
+function fmtSynced(d: Date): string {
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+export function FunnelBoard({ series, meta }: { series: FunnelSeries; meta?: FunnelMeta }) {
   const n = series.months.length;
   if (n === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No funnel data yet. Include a sheet with pipeline stages (Leads, Qualified, Proposal, Negotiation, Closed won…)
-        in the monthly pack and it will be picked up automatically.
+        No funnel data yet. Connect HubSpot (HUBSPOT_ACCESS_TOKEN) for a live pipeline, or include a sheet with
+        pipeline stages (Leads, Qualified, Proposal, Negotiation, Closed won…) in the monthly pack and it will be
+        picked up automatically.
       </p>
     );
   }
@@ -30,10 +42,18 @@ export function FunnelBoard({ series }: { series: FunnelSeries }) {
     <div className="space-y-6">
       {/* Stage bars, latest month */}
       <div>
-        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          {fmtMonthString(series.months[cur])}
-          {prev >= 0 ? ` · vs ${fmtMonthString(series.months[prev])}` : ""}
-        </p>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            {fmtMonthString(series.months[cur])}
+            {prev >= 0 ? ` · vs ${fmtMonthString(series.months[prev])}` : ""}
+          </p>
+          {meta?.live ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-brand-teal/40 bg-brand-teal/10 px-2 py-0.5 text-xs font-medium text-brand-navy">
+              <RefreshCw className="h-3 w-3" />
+              Live from HubSpot{meta.syncedAt ? ` · synced ${fmtSynced(meta.syncedAt)}` : ""}
+            </span>
+          ) : null}
+        </div>
         <div className="space-y-1.5">
           {stages.map((stage, i) => {
             const count = series.countsByStage.get(stage)?.[cur] ?? null;
@@ -136,6 +156,55 @@ export function FunnelBoard({ series }: { series: FunnelSeries }) {
           Velocity needs at least two months of funnel data — it will appear from the second monthly report onward.
         </p>
       )}
+
+      {/* Actual time-in-stage from CRM stage timestamps (HubSpot sync only) */}
+      {meta && meta.stageMetrics.some((m) => m.avgDaysInStage != null || m.avgOpenAgeDays != null) ? (
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Actual time in stage
+          </p>
+          <p className="mb-2 text-xs text-muted-foreground">
+            From HubSpot's stage-entry/exit timestamps: how long deals that moved on actually spent in each stage,
+            and how long the deals sitting there now have been waiting.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="py-1.5 pr-3 font-medium">Stage</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">Avg days to move on</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">Deals moved</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">Open deals' current age</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">Open deals</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {FUNNEL_PATH.filter((s) => s !== "CLOSED_WON").map((stage) => {
+                  const m = meta.stageMetrics.find((x) => x.stage === stage);
+                  if (!m) return null;
+                  // An open cohort noticeably older than the historical pace
+                  // is stalling pipeline — flag it.
+                  const stalling =
+                    m.avgOpenAgeDays != null && m.avgDaysInStage != null && m.avgOpenAgeDays > m.avgDaysInStage * 1.5;
+                  return (
+                    <tr key={stage}>
+                      <td className="py-1.5 pr-3 whitespace-nowrap">{FUNNEL_STAGE_LABELS[stage]}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">
+                        {m.avgDaysInStage != null ? `${Math.round(m.avgDaysInStage)}d` : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums text-muted-foreground">{m.completedCount}</td>
+                      <td className={cn("py-1.5 pr-3 text-right tabular-nums", stalling && "font-semibold text-amber-700")}>
+                        {m.avgOpenAgeDays != null ? `${Math.round(m.avgOpenAgeDays)}d` : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums text-muted-foreground">{m.openCount}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

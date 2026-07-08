@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { count, desc, eq, inArray } from "drizzle-orm";
-import { CalendarDays, FileSpreadsheet, FileText, LineChart, Plus, SlidersHorizontal, Trash2, Upload } from "lucide-react";
+import { CalendarDays, FileSpreadsheet, FileText, LineChart, Plus, RefreshCw, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,10 @@ import { formatDateOnly } from "@/lib/utils";
 import { CashChart } from "@/components/cash-chart";
 import { DeltaStat } from "@/components/delta";
 import { deleteSnapshot, deleteFinancialDocument } from "@/lib/actions/financials-data";
+import { syncHubSpotFunnelAction } from "@/lib/actions/hubspot";
+import { hubspotConfigured, maybeAutoSyncHubSpotFunnel } from "@/lib/hubspot";
 import { FINANCIAL_DOC_LABELS } from "@/lib/financial-docs";
+import { FunnelBoard } from "@/components/funnel-board";
 import { getFinancialOverview, periodToString, fmtPeriodShort } from "@/lib/financial-report";
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -22,6 +25,11 @@ const fmtBytes = (b: number) => (b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${(b /
 export default async function FinancialsPage() {
   const { membership } = await requireMembership();
   const orgId = membership.organizationId;
+
+  // Refresh the live funnel first if the last HubSpot sync is stale, so the
+  // overview below reads current pipeline. No-op (and never throws) when the
+  // integration is unconfigured or HubSpot is unreachable.
+  await maybeAutoSyncHubSpotFunnel(orgId);
 
   const [plans, overview, docs] = await Promise.all([
     db.select().from(financialPlans).where(eq(financialPlans.organizationId, orgId)).orderBy(desc(financialPlans.updatedAt)),
@@ -117,6 +125,33 @@ export default async function FinancialsPage() {
           ) : null}
         </section>
       ) : null}
+
+      {/* Customer funnel & velocity — live from HubSpot when connected */}
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xl font-semibold tracking-tight">Customer funnel &amp; velocity</h2>
+          {isManager && hubspotConfigured() ? (
+            <form action={syncHubSpotFunnelAction}>
+              <Button type="submit" variant="outline" size="sm">
+                <RefreshCw className="mr-1 h-4 w-4" />
+                Sync from HubSpot
+              </Button>
+            </form>
+          ) : null}
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <FunnelBoard series={overview.funnel} meta={overview.funnelMeta} />
+          </CardContent>
+        </Card>
+        {isManager && !hubspotConfigured() ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Connect the live pipeline: create a HubSpot private app (scope <code>crm.objects.deals.read</code>) and
+            set <code>HUBSPOT_ACCESS_TOKEN</code> in the deployment. Counts, pipeline value and time-in-stage then
+            sync automatically.
+          </p>
+        ) : null}
+      </section>
 
       {/* Monthly reports */}
       <Card>

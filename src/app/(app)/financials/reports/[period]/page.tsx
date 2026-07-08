@@ -269,7 +269,7 @@ export default async function MonthlyReportPage({ params }: { params: Promise<{ 
         <SectionTitle title="Customer funnel & velocity" />
         <Card>
           <CardContent className="pt-6">
-            <FunnelBoard series={data.funnel} />
+            <FunnelBoard series={data.funnel} meta={data.funnelMeta} />
           </CardContent>
         </Card>
       </section>
