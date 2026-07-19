@@ -3,61 +3,63 @@
 @tailwind utilities;
 
 /*
-  AssetCool brand theme — see BRAND.md.
-  Core palette: navy #1A3569, deep navy #0F1F3D, teal #3FABBD,
-  bright teal #4FC1D4, mid blue #285FAF, surface #EEF3F9.
+  Quorum brand theme — see BRAND.md.
+  A Side Quest Strategies product: deep SQS navy, electric blue, and the
+  Current-cyan accent, on mist surfaces. Token NAMES are unchanged from the
+  original theme (--brand-teal is now the cyan accent) so charts and
+  components restyle without edits.
 */
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 215 28% 17%; /* ink #1F2937 */
+    --foreground: 215 50% 12%; /* SQS ink */
     --card: 0 0% 100%;
-    --card-foreground: 215 28% 17%;
+    --card-foreground: 215 50% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 215 28% 17%;
-    --primary: 220 60% 26%; /* navy #1A3569 */
+    --popover-foreground: 215 50% 12%;
+    --primary: 215 70% 22%; /* SQS navy */
     --primary-foreground: 210 40% 98%;
-    --secondary: 213 48% 95%; /* surface #EEF3F9 */
-    --secondary-foreground: 220 60% 26%;
-    --muted: 213 48% 95%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 189 50% 92%; /* soft teal wash */
-    --accent-foreground: 219 61% 15%; /* deep navy */
+    --secondary: 210 25% 96%; /* mist */
+    --secondary-foreground: 215 70% 22%;
+    --muted: 210 25% 96%;
+    --muted-foreground: 215 20% 42%;
+    --accent: 190 60% 93%; /* cyan wash */
+    --accent-foreground: 215 70% 14%;
     --destructive: 0 72% 45%;
     --destructive-foreground: 210 40% 98%;
-    --border: 215 29% 87%; /* rule #D5DDE8 */
-    --input: 215 29% 87%;
-    --ring: 189 50% 49%; /* teal #3FABBD */
+    --border: 210 30% 88%;
+    --input: 210 30% 88%;
+    --ring: 190 85% 40%; /* cyan */
     --radius: 0.75rem;
 
     /* Brand accents for charts and highlights */
-    --brand-navy: 220 60% 26%;
-    --brand-navy-deep: 219 61% 15%;
-    --brand-teal: 189 50% 49%;
-    --brand-teal-bright: 189 61% 57%;
-    --brand-blue: 216 63% 42%;
+    --brand-navy: 215 70% 22%;
+    --brand-navy-deep: 215 70% 14%;
+    --brand-teal: 190 85% 38%; /* Quorum cyan (AA on white) */
+    --brand-teal-bright: 190 85% 50%;
+    --brand-blue: 210 80% 50%;
   }
 
   .dark {
-    --background: 219 61% 8%;
+    --background: 215 60% 7%;
     --foreground: 210 40% 98%;
-    --card: 219 55% 11%;
+    --card: 215 55% 10%;
     --card-foreground: 210 40% 98%;
-    --popover: 219 55% 11%;
+    --popover: 215 55% 10%;
     --popover-foreground: 210 40% 98%;
-    --primary: 189 61% 57%; /* bright teal pops on deep navy */
-    --primary-foreground: 219 61% 10%;
-    --secondary: 219 45% 16%;
+    --primary: 190 85% 52%; /* bright cyan pops on deep navy */
+    --primary-foreground: 215 70% 10%;
+    --secondary: 215 45% 15%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 219 45% 16%;
-    --muted-foreground: 214 25% 68%;
-    --accent: 219 45% 18%;
-    --accent-foreground: 189 61% 70%;
+    --muted: 215 45% 15%;
+    --muted-foreground: 213 25% 68%;
+    --accent: 215 45% 17%;
+    --accent-foreground: 190 85% 65%;
     --destructive: 0 63% 40%;
     --destructive-foreground: 210 40% 98%;
-    --border: 219 40% 20%;
-    --input: 219 40% 20%;
-    --ring: 189 61% 57%;
+    --border: 215 40% 19%;
+    --input: 215 40% 19%;
+    --ring: 190 85% 52%;
   }
 }
 

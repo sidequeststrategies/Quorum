@@ -71,15 +71,15 @@ export default async function HomePage() {
       <main className="flex-1">
         <section className="container py-24">
           <div className="mx-auto max-w-3xl text-center">
-            <h1 className="text-balance text-5xl font-bold tracking-tight text-primary sm:text-6xl">
+            <h1 className="font-display text-balance text-5xl font-bold tracking-tight text-primary sm:text-6xl">
               The monthly board pack,
               <br />
               <span className="text-brand-teal">without the monthly scramble.</span>
             </h1>
             <p className="mt-6 text-pretty text-lg text-muted-foreground">
-              {brand.name}&rsquo;s board reporting portal keeps financials, projects, risks, team, customers,
-              and go-to-market in one consistent format — so management reports in minutes and the board
-              sees the same picture every month.
+              {brand.name} keeps financials, projects, risks, team, customers, and go-to-market in one
+              consistent format — so management reports in minutes and the board sees the same picture
+              every month.
             </p>
             <div className="mt-10 flex items-center justify-center gap-4">
               <Button asChild size="lg">
@@ -107,7 +107,7 @@ export default async function HomePage() {
       <footer className="border-t">
         <div className="container flex h-14 items-center justify-between text-sm text-muted-foreground">
           <span>
-            © {new Date().getFullYear()} {brand.name}
+            © {new Date().getFullYear()} {brand.company} · {brand.name}
           </span>
           <span className="flex items-center gap-4">
             <span className="flex items-center gap-1.5">
